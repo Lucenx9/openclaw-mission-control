@@ -15,10 +15,9 @@ ALTER TABLE public.task_comments DISABLE TRIGGER ALL;
 ALTER TABLE public.project_members DISABLE TRIGGER ALL;
 ALTER TABLE public.activities DISABLE TRIGGER ALL;
 
--- Employees (keep only Jarvis + Abhimanyu)
+-- Employees (keep only Abhimanyu)
 INSERT INTO public.employees (id, name, employee_type, department_id, manager_id, title, status, openclaw_session_key, notify_enabled, team_id)
 VALUES
-  (1, 'Jarvis', 'agent', NULL, NULL, 'CTO', 'active', NULL, true, NULL),
   (2, 'Abhimanyu', 'human', NULL, NULL, 'CEO', 'active', NULL, false, NULL)
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
