@@ -13,7 +13,9 @@ router = APIRouter(prefix="/activities", tags=["activities"])
 
 @router.get("")
 def list_activities(limit: int = 50, session: Session = Depends(get_session)):
-    items = session.exec(select(Activity).order_by(Activity.id.desc()).limit(max(1, min(limit, 200)))).all()
+    items = session.exec(
+        select(Activity).order_by(Activity.id.desc()).limit(max(1, min(limit, 200)))
+    ).all()
     out = []
     for a in items:
         out.append(

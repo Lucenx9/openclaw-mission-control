@@ -19,7 +19,14 @@ class OpenClawClient:
             return None
         return cls(url, token)
 
-    def tools_invoke(self, tool: str, args: dict[str, Any], *, session_key: str | None = None, timeout_s: float = 5.0) -> dict[str, Any]:
+    def tools_invoke(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        session_key: str | None = None,
+        timeout_s: float = 5.0,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"tool": tool, "args": args}
         if session_key is not None:
             payload["sessionKey"] = session_key

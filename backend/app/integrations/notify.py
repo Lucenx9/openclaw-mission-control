@@ -100,7 +100,9 @@ def build_message(ctx: NotifyContext) -> str:
             if len(snippet) > 180:
                 snippet = snippet[:177] + "..."
             snippet = f"\nComment: {snippet}"
-        return f"New comment on {base}.{snippet}\nWork ONE task only; reply/update in Mission Control."
+        return (
+            f"New comment on {base}.{snippet}\nWork ONE task only; reply/update in Mission Control."
+        )
 
     if ctx.event == "status.changed":
         return f"Status changed on {base} → {t.status}.\nWork ONE task only; update Mission Control with next step."

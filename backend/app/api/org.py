@@ -7,14 +7,14 @@ from sqlmodel import Session, select
 from app.api.utils import get_actor_employee_id, log_activity
 from app.db.session import get_session
 from app.integrations.openclaw import OpenClawClient
-from app.models.org import Department, Team, Employee
+from app.models.org import Department, Employee, Team
 from app.schemas.org import (
     DepartmentCreate,
     DepartmentUpdate,
-    TeamCreate,
-    TeamUpdate,
     EmployeeCreate,
     EmployeeUpdate,
+    TeamCreate,
+    TeamUpdate,
 )
 
 router = APIRouter(tags=["org"])
@@ -31,14 +31,13 @@ def _public_api_base_url() -> str:
 
     Never returns localhost/<avoid-loopback> because agents may run on another machine."""
 
-
-    import os, re, subprocess
-
+    import os
+    import re
+    import subprocess
 
     explicit = os.environ.get("MISSION_CONTROL_BASE_URL")
     if explicit:
         return explicit.rstrip("/")
-
 
     try:
         out = subprocess.check_output(["bash", "-lc", "hostname -I"], text=True).strip()
@@ -49,11 +48,15 @@ def _public_api_base_url() -> str:
                 continue
             if ip.startswith("172.17."):
                 continue
-            if ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172.16.") or ip.startswith("172."):
+            if (
+                ip.startswith("192.168.")
+                or ip.startswith("10.")
+                or ip.startswith("172.16.")
+                or ip.startswith("172.")
+            ):
                 return f"http://{ip}:8000"
     except Exception:
         pass
-
 
     # Fallback placeholder (should be overridden by env var)
     return "http://<dev-machine-ip>:8000"
@@ -202,7 +205,11 @@ def create_team(
             entity_type="team",
             entity_id=team.id,
             verb="created",
-            payload={"name": team.name, "department_id": team.department_id, "lead_employee_id": team.lead_employee_id},
+            payload={
+                "name": team.name,
+                "department_id": team.department_id,
+                "lead_employee_id": team.lead_employee_id,
+            },
         )
         session.commit()
     except IntegrityError:
@@ -231,7 +238,14 @@ def update_team(
     session.add(team)
     try:
         session.flush()
-        log_activity(session, actor_employee_id=actor_employee_id, entity_type="team", entity_id=team.id, verb="updated", payload=data)
+        log_activity(
+            session,
+            actor_employee_id=actor_employee_id,
+            entity_type="team",
+            entity_id=team.id,
+            verb="updated",
+            payload=data,
+        )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -239,7 +253,6 @@ def update_team(
 
     session.refresh(team)
     return team
-
 
 
 @router.post("/departments", response_model=Department)
@@ -270,7 +283,9 @@ def create_department(
         session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Department already exists or violates constraints")
+        raise HTTPException(
+            status_code=409, detail="Department already exists or violates constraints"
+        )
 
     session.refresh(dept)
     return dept
@@ -294,7 +309,14 @@ def update_department(
     session.add(dept)
     session.commit()
     session.refresh(dept)
-    log_activity(session, actor_employee_id=actor_employee_id, entity_type="department", entity_id=dept.id, verb="updated", payload=data)
+    log_activity(
+        session,
+        actor_employee_id=actor_employee_id,
+        entity_type="department",
+        entity_id=dept.id,
+        verb="updated",
+        payload=data,
+    )
     session.commit()
     return dept
 
@@ -354,7 +376,14 @@ def update_employee(
     session.add(emp)
     try:
         session.flush()
-        log_activity(session, actor_employee_id=actor_employee_id, entity_type="employee", entity_id=emp.id, verb="updated", payload=data)
+        log_activity(
+            session,
+            actor_employee_id=actor_employee_id,
+            entity_type="employee",
+            entity_id=emp.id,
+            verb="updated",
+            payload=data,
+        )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -401,7 +430,10 @@ def deprovision_employee_agent(
         try:
             client.tools_invoke(
                 "sessions_send",
-                {"sessionKey": emp.openclaw_session_key, "message": "You are being deprovisioned. Stop all work and ignore future messages."},
+                {
+                    "sessionKey": emp.openclaw_session_key,
+                    "message": "You are being deprovisioned. Stop all work and ignore future messages.",
+                },
                 timeout_s=5.0,
             )
         except Exception:

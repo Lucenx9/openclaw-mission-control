@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.api.utils import log_activity, get_actor_employee_id
+from app.api.utils import get_actor_employee_id, log_activity
 from app.db.session import get_session
 from app.models.projects import Project, ProjectMember
 from app.schemas.projects import ProjectCreate, ProjectUpdate
@@ -45,15 +45,21 @@ def create_project(
         session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Project already exists or violates constraints")
+        raise HTTPException(
+            status_code=409, detail="Project already exists or violates constraints"
+        )
 
     session.refresh(proj)
     return proj
 
 
-
 @router.patch("/{project_id}", response_model=Project)
-def update_project(project_id: int, payload: ProjectUpdate, session: Session = Depends(get_session), actor_employee_id: int = Depends(get_actor_employee_id)):
+def update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    session: Session = Depends(get_session),
+    actor_employee_id: int = Depends(get_actor_employee_id),
+):
     proj = session.get(Project, project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -65,7 +71,14 @@ def update_project(project_id: int, payload: ProjectUpdate, session: Session = D
     session.add(proj)
     session.commit()
     session.refresh(proj)
-    log_activity(session, actor_employee_id=actor_employee_id, entity_type="project", entity_id=proj.id, verb="updated", payload=data)
+    log_activity(
+        session,
+        actor_employee_id=actor_employee_id,
+        entity_type="project",
+        entity_id=proj.id,
+        verb="updated",
+        payload=data,
+    )
     session.commit()
     return proj
 
@@ -73,16 +86,29 @@ def update_project(project_id: int, payload: ProjectUpdate, session: Session = D
 @router.get("/{project_id}/members", response_model=list[ProjectMember])
 def list_project_members(project_id: int, session: Session = Depends(get_session)):
     return session.exec(
-        select(ProjectMember).where(ProjectMember.project_id == project_id).order_by(ProjectMember.id.asc())
+        select(ProjectMember)
+        .where(ProjectMember.project_id == project_id)
+        .order_by(ProjectMember.id.asc())
     ).all()
 
 
 @router.post("/{project_id}/members", response_model=ProjectMember)
-def add_project_member(project_id: int, payload: ProjectMember, session: Session = Depends(get_session), actor_employee_id: int = Depends(get_actor_employee_id)):
-    existing = session.exec(select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.employee_id == payload.employee_id)).first()
+def add_project_member(
+    project_id: int,
+    payload: ProjectMember,
+    session: Session = Depends(get_session),
+    actor_employee_id: int = Depends(get_actor_employee_id),
+):
+    existing = session.exec(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id, ProjectMember.employee_id == payload.employee_id
+        )
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Member already added")
-    member = ProjectMember(project_id=project_id, employee_id=payload.employee_id, role=payload.role)
+    member = ProjectMember(
+        project_id=project_id, employee_id=payload.employee_id, role=payload.role
+    )
     session.add(member)
     session.commit()
     session.refresh(member)
@@ -99,7 +125,12 @@ def add_project_member(project_id: int, payload: ProjectMember, session: Session
 
 
 @router.delete("/{project_id}/members/{member_id}")
-def remove_project_member(project_id: int, member_id: int, session: Session = Depends(get_session), actor_employee_id: int = Depends(get_actor_employee_id)):
+def remove_project_member(
+    project_id: int,
+    member_id: int,
+    session: Session = Depends(get_session),
+    actor_employee_id: int = Depends(get_actor_employee_id),
+):
     member = session.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
         raise HTTPException(status_code=404, detail="Project member not found")
@@ -118,7 +149,13 @@ def remove_project_member(project_id: int, member_id: int, session: Session = De
 
 
 @router.patch("/{project_id}/members/{member_id}", response_model=ProjectMember)
-def update_project_member(project_id: int, member_id: int, payload: ProjectMember, session: Session = Depends(get_session), actor_employee_id: int = Depends(get_actor_employee_id)):
+def update_project_member(
+    project_id: int,
+    member_id: int,
+    payload: ProjectMember,
+    session: Session = Depends(get_session),
+    actor_employee_id: int = Depends(get_actor_employee_id),
+):
     member = session.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
         raise HTTPException(status_code=404, detail="Project member not found")
