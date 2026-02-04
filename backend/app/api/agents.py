@@ -18,6 +18,7 @@ from app.models.activity_events import ActivityEvent
 from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.gateways import Gateway
+from app.models.tasks import Task
 from app.schemas.agents import (
     AgentCreate,
     AgentHeartbeat,
@@ -566,6 +567,27 @@ def delete_agent(
         event_type="agent.delete.direct",
         message=f"Deleted agent {agent.name}.",
         agent_id=None,
+    )
+    now = datetime.now()
+    session.execute(
+        update(Task)
+        .where(col(Task.assigned_agent_id) == agent.id)
+        .where(col(Task.status) == "in_progress")
+        .values(
+            assigned_agent_id=None,
+            status="inbox",
+            in_progress_at=None,
+            updated_at=now,
+        )
+    )
+    session.execute(
+        update(Task)
+        .where(col(Task.assigned_agent_id) == agent.id)
+        .where(col(Task.status) != "in_progress")
+        .values(
+            assigned_agent_id=None,
+            updated_at=now,
+        )
     )
     session.execute(
         update(ActivityEvent)
