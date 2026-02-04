@@ -7,12 +7,8 @@ from sqlmodel import Session, select
 
 from app.core.auth import AuthContext, get_auth_context
 from app.db.session import get_session
-from app.integrations.openclaw_gateway import (
-    GatewayConfig as GatewayClientConfig,
-    OpenClawGatewayError,
-    ensure_session,
-    send_message,
-)
+from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
+from app.integrations.openclaw_gateway import OpenClawGatewayError, ensure_session, send_message
 from app.models.gateways import Gateway
 from app.schemas.gateways import GatewayCreate, GatewayRead, GatewayUpdate
 
@@ -237,9 +233,7 @@ async def _send_skyll_enable_message(gateway: Gateway) -> None:
     if not gateway.main_session_key:
         raise OpenClawGatewayError("gateway main_session_key is required")
     client_config = GatewayClientConfig(url=gateway.url, token=gateway.token)
-    await ensure_session(
-        gateway.main_session_key, config=client_config, label="Main Agent"
-    )
+    await ensure_session(gateway.main_session_key, config=client_config, label="Main Agent")
     await send_message(
         SKYLL_ENABLE_MESSAGE,
         session_key=gateway.main_session_key,
@@ -254,9 +248,7 @@ async def _send_skyll_disable_message(gateway: Gateway) -> None:
     if not gateway.main_session_key:
         raise OpenClawGatewayError("gateway main_session_key is required")
     client_config = GatewayClientConfig(url=gateway.url, token=gateway.token)
-    await ensure_session(
-        gateway.main_session_key, config=client_config, label="Main Agent"
-    )
+    await ensure_session(gateway.main_session_key, config=client_config, label="Main Agent")
     await send_message(
         SKYLL_DISABLE_MESSAGE,
         session_key=gateway.main_session_key,

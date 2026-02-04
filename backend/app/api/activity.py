@@ -22,9 +22,5 @@ def list_activity(
     statement = select(ActivityEvent)
     if actor.actor_type == "agent" and actor.agent:
         statement = statement.where(ActivityEvent.agent_id == actor.agent.id)
-    statement = (
-        statement.order_by(desc(col(ActivityEvent.created_at)))
-        .offset(offset)
-        .limit(limit)
-    )
+    statement = statement.order_by(desc(col(ActivityEvent.created_at))).offset(offset).limit(limit)
     return list(session.exec(statement))

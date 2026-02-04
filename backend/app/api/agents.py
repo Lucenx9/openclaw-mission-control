@@ -5,22 +5,18 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, col, select
 from sqlalchemy import update
+from sqlmodel import Session, col, select
 
 from app.api.deps import ActorContext, require_admin_auth, require_admin_or_agent
 from app.core.agent_tokens import generate_agent_token, hash_agent_token, verify_agent_token
 from app.core.auth import AuthContext
 from app.core.config import settings
 from app.db.session import get_session
-from app.integrations.openclaw_gateway import (
-    GatewayConfig as GatewayClientConfig,
-    OpenClawGatewayError,
-    ensure_session,
-    send_message,
-)
-from app.models.agents import Agent
+from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
+from app.integrations.openclaw_gateway import OpenClawGatewayError, ensure_session, send_message
 from app.models.activity_events import ActivityEvent
+from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.schemas.agents import (
@@ -28,9 +24,9 @@ from app.schemas.agents import (
     AgentDeleteConfirm,
     AgentHeartbeat,
     AgentHeartbeatCreate,
+    AgentProvisionConfirm,
     AgentRead,
     AgentUpdate,
-    AgentProvisionConfirm,
 )
 from app.services.activity_log import record_activity
 from app.services.agent_provisioning import (
@@ -76,9 +72,7 @@ def _require_board(session: Session, board_id: UUID | str | None) -> Board:
     return board
 
 
-def _require_gateway(
-    session: Session, board: Board
-) -> tuple[Gateway, GatewayClientConfig]:
+def _require_gateway(session: Session, board: Board) -> tuple[Gateway, GatewayClientConfig]:
     if not board.gateway_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -140,9 +134,7 @@ def _record_heartbeat(session: Session, agent: Agent) -> None:
     )
 
 
-def _record_instruction_failure(
-    session: Session, agent: Agent, error: str, action: str
-) -> None:
+def _record_instruction_failure(session: Session, agent: Agent, error: str, action: str) -> None:
     action_label = action.replace("_", " ").capitalize()
     record_activity(
         session,
@@ -206,9 +198,7 @@ async def create_agent(
     agent.provision_confirm_token_hash = hash_agent_token(provision_token)
     agent.provision_requested_at = datetime.utcnow()
     agent.provision_action = "provision"
-    session_key, session_error = await _ensure_gateway_session(
-        agent.name, client_config
-    )
+    session_key, session_error = await _ensure_gateway_session(agent.name, client_config)
     agent.openclaw_session_id = session_key
     session.add(agent)
     session.commit()
@@ -315,9 +305,7 @@ async def update_agent(
     session.commit()
     session.refresh(agent)
     try:
-        await send_update_message(
-            agent, board, gateway, raw_token, provision_token, auth.user
-        )
+        await send_update_message(agent, board, gateway, raw_token, provision_token, auth.user)
         record_activity(
             session,
             event_type="agent.update.requested",
@@ -383,9 +371,7 @@ async def heartbeat_or_create_agent(
         agent.provision_confirm_token_hash = hash_agent_token(provision_token)
         agent.provision_requested_at = datetime.utcnow()
         agent.provision_action = "provision"
-        session_key, session_error = await _ensure_gateway_session(
-            agent.name, client_config
-        )
+        session_key, session_error = await _ensure_gateway_session(agent.name, client_config)
         agent.openclaw_session_id = session_key
         session.add(agent)
         session.commit()
@@ -456,9 +442,7 @@ async def heartbeat_or_create_agent(
     elif not agent.openclaw_session_id:
         board = _require_board(session, str(agent.board_id) if agent.board_id else None)
         gateway, client_config = _require_gateway(session, board)
-        session_key, session_error = await _ensure_gateway_session(
-            agent.name, client_config
-        )
+        session_key, session_error = await _ensure_gateway_session(agent.name, client_config)
         agent.openclaw_session_id = session_key
         if session_error:
             record_activity(
@@ -533,7 +517,7 @@ def delete_agent(
             "2) Delete the agent session from the gateway.\n"
             "3) Confirm deletion by calling:\n"
             f"   POST {base_url}/api/v1/agents/{agent.id}/delete/confirm\n"
-            "   Body: {\"token\": \"" + raw_token + "\"}\n"
+            '   Body: {"token": "' + raw_token + '"}\n'
             "Reply NO_REPLY."
         )
         await ensure_session(main_session, config=client_config, label="Main Agent")
@@ -647,9 +631,7 @@ def confirm_delete_agent(
         agent_id=None,
     )
     session.execute(
-        update(ActivityEvent)
-        .where(col(ActivityEvent.agent_id) == agent.id)
-        .values(agent_id=None)
+        update(ActivityEvent).where(col(ActivityEvent.agent_id) == agent.id).values(agent_id=None)
     )
     session.delete(agent)
     session.commit()

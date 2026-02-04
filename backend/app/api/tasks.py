@@ -16,17 +16,11 @@ from app.api.deps import (
 )
 from app.core.auth import AuthContext
 from app.db.session import get_session
-from app.models.agents import Agent
 from app.models.activity_events import ActivityEvent
+from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.tasks import Task
-from app.schemas.tasks import (
-    TaskCommentCreate,
-    TaskCommentRead,
-    TaskCreate,
-    TaskRead,
-    TaskUpdate,
-)
+from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskRead, TaskUpdate
 from app.services.activity_log import record_activity
 
 router = APIRouter(prefix="/boards/{board_id}/tasks", tags=["tasks"])

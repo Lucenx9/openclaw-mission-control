@@ -4,8 +4,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlmodel import Session
 
 from app.core.auth import AuthContext, get_auth_context
+from app.db.session import get_session
+from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
 from app.integrations.openclaw_gateway import (
-    GatewayConfig as GatewayClientConfig,
     OpenClawGatewayError,
     ensure_session,
     get_chat_history,
@@ -17,7 +18,6 @@ from app.integrations.openclaw_gateway_protocol import (
     GATEWAY_METHODS,
     PROTOCOL_VERSION,
 )
-from app.db.session import get_session
 from app.models.boards import Board
 from app.models.gateways import Gateway
 
@@ -71,9 +71,7 @@ def _resolve_gateway(
 def _require_gateway(
     session: Session, board_id: str | None
 ) -> tuple[Board, GatewayClientConfig, str | None]:
-    board, config, main_session = _resolve_gateway(
-        session, board_id, None, None, None
-    )
+    board, config, main_session = _resolve_gateway(session, board_id, None, None, None)
     if board is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -108,9 +106,7 @@ async def gateways_status(
         main_session_error: str | None = None
         if main_session:
             try:
-                ensured = await ensure_session(
-                    main_session, config=config, label="Main Agent"
-                )
+                ensured = await ensure_session(main_session, config=config, label="Main Agent")
                 if isinstance(ensured, dict):
                     main_session_entry = ensured.get("entry") or ensured
             except OpenClawGatewayError as exc:
@@ -157,9 +153,7 @@ async def list_gateway_sessions(
     main_session_entry: object | None = None
     if main_session:
         try:
-            ensured = await ensure_session(
-                main_session, config=config, label="Main Agent"
-            )
+            ensured = await ensure_session(main_session, config=config, label="Main Agent")
             if isinstance(ensured, dict):
                 main_session_entry = ensured.get("entry") or ensured
         except OpenClawGatewayError:
@@ -194,9 +188,7 @@ async def get_gateway_session(
         sessions_list = list(sessions.get("sessions") or [])
     else:
         sessions_list = list(sessions or [])
-    if main_session and not any(
-        session.get("key") == main_session for session in sessions_list
-    ):
+    if main_session and not any(session.get("key") == main_session for session in sessions_list):
         try:
             await ensure_session(main_session, config=config, label="Main Agent")
             refreshed = await openclaw_call("sessions.list", config=config)
@@ -206,9 +198,7 @@ async def get_gateway_session(
                 sessions_list = list(refreshed or [])
         except OpenClawGatewayError:
             pass
-    session_entry = next(
-        (item for item in sessions_list if item.get("key") == session_id), None
-    )
+    session_entry = next((item for item in sessions_list if item.get("key") == session_id), None)
     if session_entry is None and main_session and session_id == main_session:
         try:
             ensured = await ensure_session(main_session, config=config, label="Main Agent")

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func
+from sqlalchemy import DateTime, case, cast, func
 from sqlmodel import Session, col, select
 
 from app.api.deps import require_admin_auth
@@ -114,7 +114,7 @@ def _wip_series_from_mapping(
 def _query_throughput(session: Session, range_spec: RangeSpec) -> DashboardRangeSeries:
     bucket_col = func.date_trunc(range_spec.bucket, Task.updated_at).label("bucket")
     statement = (
-        select(bucket_col, func.count(Task.id))
+        select(bucket_col, func.count())
         .where(col(Task.status) == "review")
         .where(col(Task.updated_at) >= range_spec.start)
         .where(col(Task.updated_at) <= range_spec.end)
@@ -128,9 +128,8 @@ def _query_throughput(session: Session, range_spec: RangeSpec) -> DashboardRange
 
 def _query_cycle_time(session: Session, range_spec: RangeSpec) -> DashboardRangeSeries:
     bucket_col = func.date_trunc(range_spec.bucket, Task.updated_at).label("bucket")
-    duration_hours = func.extract(
-        "epoch", Task.updated_at - Task.in_progress_at
-    ) / 3600.0
+    in_progress = cast(Task.in_progress_at, DateTime)
+    duration_hours = func.extract("epoch", Task.updated_at - in_progress) / 3600.0
     statement = (
         select(bucket_col, func.avg(duration_hours))
         .where(col(Task.status) == "review")
@@ -146,9 +145,7 @@ def _query_cycle_time(session: Session, range_spec: RangeSpec) -> DashboardRange
 
 
 def _query_error_rate(session: Session, range_spec: RangeSpec) -> DashboardRangeSeries:
-    bucket_col = func.date_trunc(range_spec.bucket, ActivityEvent.created_at).label(
-        "bucket"
-    )
+    bucket_col = func.date_trunc(range_spec.bucket, ActivityEvent.created_at).label("bucket")
     error_case = case(
         (
             col(ActivityEvent.event_type).like(ERROR_EVENT_PATTERN),
@@ -157,7 +154,7 @@ def _query_error_rate(session: Session, range_spec: RangeSpec) -> DashboardRange
         else_=0,
     )
     statement = (
-        select(bucket_col, func.sum(error_case), func.count(ActivityEvent.id))
+        select(bucket_col, func.sum(error_case), func.count())
         .where(col(ActivityEvent.created_at) >= range_spec.start)
         .where(col(ActivityEvent.created_at) <= range_spec.end)
         .group_by(bucket_col)
@@ -204,9 +201,8 @@ def _query_wip(session: Session, range_spec: RangeSpec) -> DashboardWipRangeSeri
 def _median_cycle_time_7d(session: Session) -> float | None:
     now = datetime.utcnow()
     start = now - timedelta(days=7)
-    duration_hours = func.extract(
-        "epoch", Task.updated_at - Task.in_progress_at
-    ) / 3600.0
+    in_progress = cast(Task.in_progress_at, DateTime)
+    duration_hours = func.extract("epoch", Task.updated_at - in_progress) / 3600.0
     statement = (
         select(func.percentile_cont(0.5).within_group(duration_hours))
         .where(col(Task.status) == "review")
@@ -233,7 +229,7 @@ def _error_rate_kpi(session: Session, range_spec: RangeSpec) -> float:
         else_=0,
     )
     statement = (
-        select(func.sum(error_case), func.count(ActivityEvent.id))
+        select(func.sum(error_case), func.count())
         .where(col(ActivityEvent.created_at) >= range_spec.start)
         .where(col(ActivityEvent.created_at) <= range_spec.end)
     )
@@ -248,7 +244,7 @@ def _error_rate_kpi(session: Session, range_spec: RangeSpec) -> float:
 
 def _active_agents(session: Session) -> int:
     threshold = datetime.utcnow() - OFFLINE_AFTER
-    statement = select(func.count(Agent.id)).where(
+    statement = select(func.count()).where(
         col(Agent.last_seen_at).is_not(None),
         col(Agent.last_seen_at) >= threshold,
     )
@@ -257,7 +253,7 @@ def _active_agents(session: Session) -> int:
 
 
 def _tasks_in_progress(session: Session) -> int:
-    statement = select(func.count(Task.id)).where(col(Task.status) == "in_progress")
+    statement = select(func.count()).where(col(Task.status) == "in_progress")
     result = session.exec(statement).one()
     return int(result)
 

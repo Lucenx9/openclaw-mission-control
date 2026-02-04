@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, JSON, Text
+from sqlalchemy import JSON, Column, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -17,9 +17,7 @@ class Agent(SQLModel, table=True):
     status: str = Field(default="provisioning", index=True)
     openclaw_session_id: str | None = Field(default=None, index=True)
     agent_token_hash: str | None = Field(default=None, index=True)
-    heartbeat_config: dict[str, Any] | None = Field(
-        default=None, sa_column=Column(JSON)
-    )
+    heartbeat_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     identity_template: str | None = Field(default=None, sa_column=Column(Text))
     soul_template: str | None = Field(default=None, sa_column=Column(Text))
     provision_requested_at: datetime | None = Field(default=None)

@@ -41,7 +41,5 @@ def verify_agent_token(token: str, stored_hash: str) -> bool:
         return False
     salt = _b64decode(salt_b64)
     expected_digest = _b64decode(digest_b64)
-    candidate = hashlib.pbkdf2_hmac(
-        "sha256", token.encode("utf-8"), salt, iterations_int
-    )
+    candidate = hashlib.pbkdf2_hmac("sha256", token.encode("utf-8"), salt, iterations_int)
     return hmac.compare_digest(candidate, expected_digest)

@@ -8,16 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete
 from sqlmodel import Session, col, select
 
-from app.api.deps import (
-    ActorContext,
-    get_board_or_404,
-    require_admin_auth,
-    require_admin_or_agent,
-)
+from app.api.deps import ActorContext, get_board_or_404, require_admin_auth, require_admin_or_agent
 from app.core.auth import AuthContext
 from app.db.session import get_session
+from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
 from app.integrations.openclaw_gateway import (
-    GatewayConfig as GatewayClientConfig,
     OpenClawGatewayError,
     delete_session,
     ensure_session,
@@ -184,9 +179,7 @@ def delete_board(
     auth: AuthContext = Depends(require_admin_auth),
 ) -> dict[str, bool]:
     agents = list(session.exec(select(Agent).where(Agent.board_id == board.id)))
-    task_ids = list(
-        session.exec(select(Task.id).where(Task.board_id == board.id))
-    )
+    task_ids = list(session.exec(select(Task.id).where(Task.board_id == board.id)))
 
     config, client_config = _board_gateway(session, board)
     if config and client_config:
@@ -200,14 +193,10 @@ def delete_board(
             ) from exc
 
     if task_ids:
-        session.execute(
-            delete(ActivityEvent).where(col(ActivityEvent.task_id).in_(task_ids))
-        )
+        session.execute(delete(ActivityEvent).where(col(ActivityEvent.task_id).in_(task_ids)))
     if agents:
         agent_ids = [agent.id for agent in agents]
-        session.execute(
-            delete(ActivityEvent).where(col(ActivityEvent.agent_id).in_(agent_ids))
-        )
+        session.execute(delete(ActivityEvent).where(col(ActivityEvent.agent_id).in_(agent_ids)))
         session.execute(delete(Agent).where(col(Agent.id).in_(agent_ids)))
     session.execute(delete(Task).where(col(Task.board_id) == board.id))
     session.delete(board)

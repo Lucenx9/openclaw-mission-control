@@ -9,11 +9,8 @@ from uuid import uuid4
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 from app.core.config import settings
-from app.integrations.openclaw_gateway import (
-    GatewayConfig as GatewayClientConfig,
-    ensure_session,
-    send_message,
-)
+from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
+from app.integrations.openclaw_gateway import ensure_session, send_message
 from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.gateways import Gateway
@@ -130,12 +127,12 @@ def _build_context(
         "auth_token": auth_token,
         "main_session_key": main_session_key,
         "workspace_root": workspace_root,
-        "user_name": user.name if user else "",
-        "user_preferred_name": user.preferred_name if user else "",
-        "user_pronouns": user.pronouns if user else "",
-        "user_timezone": user.timezone if user else "",
-        "user_notes": user.notes if user else "",
-        "user_context": user.context if user else "",
+        "user_name": (user.name or "") if user else "",
+        "user_preferred_name": (user.preferred_name or "") if user else "",
+        "user_pronouns": (user.pronouns or "") if user else "",
+        "user_timezone": (user.timezone or "") if user else "",
+        "user_notes": (user.notes or "") if user else "",
+        "user_context": (user.context or "") if user else "",
     }
 
 
@@ -146,9 +143,7 @@ def _build_file_blocks(context: dict[str, str], agent: Agent) -> str:
     if agent.soul_template:
         overrides["SOUL.md"] = agent.soul_template
     templates = _read_templates(context, overrides=overrides)
-    return "".join(
-        _render_file_block(name, templates.get(name, "")) for name in TEMPLATE_FILES
-    )
+    return "".join(_render_file_block(name, templates.get(name, "")) for name in TEMPLATE_FILES)
 
 
 def build_provisioning_message(
@@ -198,7 +193,7 @@ def build_provisioning_message(
         "run heartbeats.\n"
         "7) After provisioning completes, confirm by calling:\n"
         f"   POST {context['base_url']}/api/v1/agents/{context['agent_id']}/provision/confirm\n"
-        f"   Body: {{\"token\": \"{confirm_token}\", \"action\": \"provision\"}}\n\n"
+        f'   Body: {{"token": "{confirm_token}", "action": "provision"}}\n\n'
         "Files:" + file_blocks
     )
 
@@ -248,7 +243,7 @@ def build_update_message(
         "run heartbeats.\n"
         "7) After the update completes (and only after files are written), confirm by calling:\n"
         f"   POST {context['base_url']}/api/v1/agents/{context['agent_id']}/provision/confirm\n"
-        f"   Body: {{\"token\": \"{confirm_token}\", \"action\": \"update\"}}\n"
+        f'   Body: {{"token": "{confirm_token}", "action": "update"}}\n'
         "   Mission Control will send the hello message only after this confirmation.\n\n"
         "Files:" + file_blocks
     )
@@ -267,16 +262,10 @@ async def send_provisioning_message(
     if not gateway.main_session_key:
         raise ValueError("gateway_main_session_key is required")
     main_session = gateway.main_session_key
-    client_config = GatewayClientConfig(
-        url=gateway.url, token=gateway.token
-    )
+    client_config = GatewayClientConfig(url=gateway.url, token=gateway.token)
     await ensure_session(main_session, config=client_config, label="Main Agent")
-    message = build_provisioning_message(
-        agent, board, gateway, auth_token, confirm_token, user
-    )
-    await send_message(
-        message, session_key=main_session, config=client_config, deliver=False
-    )
+    message = build_provisioning_message(agent, board, gateway, auth_token, confirm_token, user)
+    await send_message(message, session_key=main_session, config=client_config, deliver=False)
 
 
 async def send_update_message(
@@ -292,13 +281,7 @@ async def send_update_message(
     if not gateway.main_session_key:
         raise ValueError("gateway_main_session_key is required")
     main_session = gateway.main_session_key
-    client_config = GatewayClientConfig(
-        url=gateway.url, token=gateway.token
-    )
+    client_config = GatewayClientConfig(url=gateway.url, token=gateway.token)
     await ensure_session(main_session, config=client_config, label="Main Agent")
-    message = build_update_message(
-        agent, board, gateway, auth_token, confirm_token, user
-    )
-    await send_message(
-        message, session_key=main_session, config=client_config, deliver=False
-    )
+    message = build_update_message(agent, board, gateway, auth_token, confirm_token, user)
+    await send_message(message, session_key=main_session, config=client_config, deliver=False)
