@@ -3,15 +3,23 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from app.api.deps import get_board_or_404, require_admin_auth
+from app.core.agent_tokens import generate_agent_token, hash_agent_token
 from app.core.auth import AuthContext
 from app.db.session import get_session
 from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
-from app.integrations.openclaw_gateway import OpenClawGatewayError, ensure_session, get_chat_history, send_message
+from app.integrations.openclaw_gateway import (
+    OpenClawGatewayError,
+    ensure_session,
+    get_chat_history,
+    send_message,
+)
+from app.models.agents import Agent
 from app.models.board_onboarding import BoardOnboardingSession
 from app.models.boards import Board
 from app.models.gateways import Gateway
@@ -22,11 +30,9 @@ from app.schemas.board_onboarding import (
     BoardOnboardingStart,
 )
 from app.schemas.boards import BoardRead
+from app.services.agent_provisioning import DEFAULT_HEARTBEAT_CONFIG, provision_agent
 
 router = APIRouter(prefix="/boards/{board_id}/onboarding", tags=["board-onboarding"])
-
-SESSION_PREFIX = "agent:main:onboarding:"
-
 
 def _extract_json(text: str) -> dict[str, object] | None:
     try:
@@ -82,17 +88,77 @@ def _get_assistant_messages(history: object) -> list[str]:
     return messages
 
 
-def _gateway_config(session: Session, board: Board) -> GatewayClientConfig:
+def _gateway_config(session: Session, board: Board) -> tuple[Gateway, GatewayClientConfig]:
     if not board.gateway_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
     gateway = session.get(Gateway, board.gateway_id)
-    if gateway is None or not gateway.url:
+    if gateway is None or not gateway.url or not gateway.main_session_key:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
-    return GatewayClientConfig(url=gateway.url, token=gateway.token)
+    return gateway, GatewayClientConfig(url=gateway.url, token=gateway.token)
 
 
-def _session_key(board: Board) -> str:
-    return f"{SESSION_PREFIX}{board.id}"
+def _build_session_key(agent_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", agent_name.lower()).strip("-")
+    return f"agent:{slug or uuid4().hex}:main"
+
+
+def _lead_agent_name(board: Board) -> str:
+    return f"{board.name} Lead"
+
+
+async def _ensure_lead_agent(
+    session: Session,
+    board: Board,
+    gateway: Gateway,
+    config: GatewayClientConfig,
+    auth: AuthContext,
+) -> Agent:
+    existing = session.exec(
+        select(Agent)
+        .where(Agent.board_id == board.id)
+        .where(Agent.is_board_lead.is_(True))
+    ).first()
+    if existing:
+        return existing
+
+    agent = Agent(
+        name=_lead_agent_name(board),
+        status="provisioning",
+        board_id=board.id,
+        is_board_lead=True,
+        heartbeat_config=DEFAULT_HEARTBEAT_CONFIG.copy(),
+        identity_profile={
+            "role": "Board Lead",
+            "communication_style": "direct, concise, practical",
+            "emoji": ":compass:",
+        },
+    )
+    raw_token = generate_agent_token()
+    agent.agent_token_hash = hash_agent_token(raw_token)
+    agent.provision_requested_at = datetime.utcnow()
+    agent.provision_action = "provision"
+    agent.openclaw_session_id = _build_session_key(agent.name)
+    session.add(agent)
+    session.commit()
+    session.refresh(agent)
+
+    try:
+        await provision_agent(agent, board, gateway, raw_token, auth.user, action="provision")
+        await ensure_session(agent.openclaw_session_id, config=config, label=agent.name)
+        await send_message(
+            (
+                f"Hello {agent.name}. Your workspace has been provisioned.\n\n"
+                "Start the agent, run BOOT.md, and if BOOTSTRAP.md exists run it once "
+                "then delete it. Begin heartbeats after startup."
+            ),
+            session_key=agent.openclaw_session_id,
+            config=config,
+            deliver=True,
+        )
+    except OpenClawGatewayError:
+        # Best-effort provisioning. Board confirmation should still succeed.
+        pass
+    return agent
 
 
 @router.get("", response_model=BoardOnboardingRead)
@@ -126,20 +192,20 @@ async def start_onboarding(
     if onboarding:
         return onboarding
 
-    config = _gateway_config(session, board)
-    session_key = _session_key(board)
+    gateway, config = _gateway_config(session, board)
+    session_key = gateway.main_session_key
     prompt = (
         "BOARD ONBOARDING REQUEST\n\n"
         f"Board Name: {board.name}\n"
-        "You are the lead agent. Ask the user 3-6 focused questions to clarify their goal.\n"
+        "You are the main agent. Ask the user 3-6 focused questions to clarify their goal.\n"
         "Return questions as JSON: {\"question\": \"...\", \"options\": [...]}.\n"
         "When you have enough info, return JSON: {\"status\": \"complete\", \"board_type\": \"goal\"|\"general\", "
         "\"objective\": \"...\", \"success_metrics\": {...}, \"target_date\": \"YYYY-MM-DD\"}."
     )
 
     try:
-        await ensure_session(session_key, config=config, label=f"Onboarding {board.name}")
-        await send_message(prompt, session_key=session_key, config=config, deliver=True)
+        await ensure_session(session_key, config=config, label="Main Agent")
+        await send_message(prompt, session_key=session_key, config=config, deliver=False)
     except OpenClawGatewayError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
@@ -170,7 +236,7 @@ async def answer_onboarding(
     if onboarding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    config = _gateway_config(session, board)
+    _, config = _gateway_config(session, board)
     answer_text = payload.answer
     if payload.other_text:
         answer_text = f"{payload.answer}: {payload.other_text}"
@@ -181,9 +247,9 @@ async def answer_onboarding(
     )
 
     try:
-        await ensure_session(onboarding.session_key, config=config, label=f"Onboarding {board.name}")
+        await ensure_session(onboarding.session_key, config=config, label="Main Agent")
         await send_message(
-            answer_text, session_key=onboarding.session_key, config=config, deliver=True
+            answer_text, session_key=onboarding.session_key, config=config, deliver=False
         )
         history = await get_chat_history(onboarding.session_key, config=config)
     except OpenClawGatewayError as exc:
@@ -209,7 +275,7 @@ async def answer_onboarding(
 
 
 @router.post("/confirm", response_model=BoardRead)
-def confirm_onboarding(
+async def confirm_onboarding(
     payload: BoardOnboardingConfirm,
     board: Board = Depends(get_board_or_404),
     session: Session = Depends(get_session),
@@ -233,8 +299,10 @@ def confirm_onboarding(
     onboarding.status = "confirmed"
     onboarding.updated_at = datetime.utcnow()
 
+    gateway, config = _gateway_config(session, board)
     session.add(board)
     session.add(onboarding)
     session.commit()
     session.refresh(board)
+    await _ensure_lead_agent(session, board, gateway, config, auth)
     return board
