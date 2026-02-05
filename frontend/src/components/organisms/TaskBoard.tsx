@@ -14,6 +14,8 @@ type Task = {
   due_at?: string | null;
   assigned_agent_id?: string | null;
   assignee?: string;
+  approvalsCount?: number;
+  approvalsPendingCount?: number;
 };
 
 type TaskBoardProps = {
@@ -173,17 +175,19 @@ export function TaskBoard({
             <div className="rounded-b-xl border border-t-0 border-slate-200 bg-white p-3">
               <div className="space-y-3">
                 {columnTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    title={task.title}
-                    priority={task.priority}
-                    assignee={task.assignee}
-                    due={formatDueDate(task.due_at)}
-                    onClick={() => onTaskSelect?.(task)}
-                    draggable
-                    isDragging={draggingId === task.id}
-                    onDragStart={handleDragStart(task)}
-                    onDragEnd={handleDragEnd}
+                    <TaskCard
+                      key={task.id}
+                      title={task.title}
+                      priority={task.priority}
+                      assignee={task.assignee}
+                      due={formatDueDate(task.due_at)}
+                      approvalsCount={task.approvalsCount}
+                      approvalsPendingCount={task.approvalsPendingCount}
+                      onClick={() => onTaskSelect?.(task)}
+                      draggable
+                      isDragging={draggingId === task.id}
+                      onDragStart={handleDragStart(task)}
+                      onDragEnd={handleDragEnd}
                   />
                 ))}
               </div>

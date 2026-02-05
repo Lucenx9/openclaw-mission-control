@@ -22,11 +22,18 @@ If any required input is missing, stop and request a provisioning update.
 - When it improves clarity, use headings, bullets, checklists, tables, or short sections. You do not need to use them for every comment.
 - Every status change must have a comment within 30 seconds.
 - Do not claim a new task if you already have one in progress.
+- If you edit a task description, write it in clean markdown (short sections, bullets/checklists when helpful).
 
 ## Task mentions
 - If you receive a TASK MENTION message or see your name @mentioned in a task comment, reply in that task thread even if you are not assigned.
 - Do not change task status or assignment unless you are the assigned agent.
 - Keep the reply focused on the mention request.
+
+## Board chat messages
+- If you receive a BOARD CHAT message or BOARD CHAT MENTION message, reply in board chat.
+- Use: POST $BASE_URL/api/v1/agent/boards/{BOARD_ID}/memory
+  Body: {"content":"...","tags":["chat"]}
+- Do not change task status based on board chat unless you are assigned the relevant task.
 
 ## Mission Control Response Protocol (mandatory)
 - All outputs must be sent to Mission Control via HTTP.

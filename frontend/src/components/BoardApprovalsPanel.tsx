@@ -30,6 +30,7 @@ type BoardApprovalsPanelProps = {
   error?: string | null;
   onRefresh?: () => void;
   onDecision?: (approvalId: string, status: "approved" | "rejected") => void;
+  scrollable?: boolean;
 };
 
 const formatTimestamp = (value?: string | null) => {
@@ -108,12 +109,14 @@ export function BoardApprovalsPanel({
   error: externalError,
   onRefresh,
   onDecision,
+  scrollable = false,
 }: BoardApprovalsPanelProps) {
   const { getToken, isSignedIn } = useAuth();
   const [internalApprovals, setInternalApprovals] = useState<Approval[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const usingExternal = Array.isArray(externalApprovals);
   const approvals = usingExternal ? externalApprovals ?? [] : internalApprovals;
   const loadingState = usingExternal ? externalLoading ?? false : isLoading;
@@ -204,8 +207,20 @@ export function BoardApprovalsPanel({
     return { pending, resolved };
   }, [approvals]);
 
+  const toggleExpanded = useCallback((approvalId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(approvalId)) {
+        next.delete(approvalId);
+      } else {
+        next.add(approvalId);
+      }
+      return next;
+    });
+  }, []);
+
   return (
-    <Card>
+    <Card className={scrollable ? "flex h-full flex-col" : undefined}>
       <CardHeader className="flex flex-col gap-4 border-b border-[color:var(--border)] pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -228,7 +243,12 @@ export function BoardApprovalsPanel({
           Review lead-agent decisions that require human approval.
         </p>
       </CardHeader>
-      <CardContent className="space-y-4 pt-5">
+      <CardContent
+        className={cn(
+          "space-y-4 pt-5",
+          scrollable && "flex-1 overflow-y-auto"
+        )}
+      >
         {errorState ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {errorState}
@@ -246,90 +266,106 @@ export function BoardApprovalsPanel({
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Pending
                 </p>
-                {sortedApprovals.pending.map((approval) => {
-                  const summary = approvalSummary(approval);
-                  return (
-                    <div
-                      key={approval.id}
-                      className="space-y-3 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-strong">
-                            {humanizeAction(approval.action_type)}
-                          </p>
-                          <p className="text-xs text-muted">
-                            Requested {formatTimestamp(approval.created_at)}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={confidenceVariant(approval.confidence)}>
-                            {approval.confidence}% confidence
-                          </Badge>
-                          <Badge variant={statusBadgeVariant(approval.status)}>
-                            {approval.status}
-                          </Badge>
-                        </div>
-                      </div>
-                      {summary.rows.length > 0 ? (
-                        <div className="grid gap-2 text-sm text-strong sm:grid-cols-2">
-                          {summary.rows.map((row) => (
-                            <div key={`${approval.id}-${row.label}`}>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                                {row.label}
-                              </p>
-                              <p className="mt-1 text-sm text-strong">
-                                {row.value}
-                              </p>
+                <div className="divide-y divide-[color:var(--border)] rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]">
+                  {sortedApprovals.pending.map((approval) => {
+                    const summary = approvalSummary(approval);
+                    const summaryLine = summary.rows
+                      .map((row) => `${row.label}: ${row.value}`)
+                      .join(" • ");
+                    const detailsPayload = JSON.stringify(
+                      {
+                        payload: approval.payload ?? null,
+                        rubric_scores: approval.rubric_scores ?? null,
+                      },
+                      null,
+                      2
+                    );
+                    const isExpanded = expandedIds.has(approval.id);
+                    return (
+                      <div key={approval.id} className="space-y-3 px-5 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-strong">
+                              {humanizeAction(approval.action_type)}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                              <span>
+                                Requested {formatTimestamp(approval.created_at)}
+                              </span>
+                              {summaryLine ? (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="truncate">{summaryLine}</span>
+                                </>
+                              ) : null}
                             </div>
-                          ))}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={confidenceVariant(approval.confidence)}>
+                              {approval.confidence}% confidence
+                            </Badge>
+                            <Badge variant={statusBadgeVariant(approval.status)}>
+                              {approval.status}
+                            </Badge>
+                          </div>
                         </div>
-                      ) : null}
-                      {summary.reason ? (
-                        <p className="text-sm text-muted">{summary.reason}</p>
-                      ) : null}
-                      {approval.payload || approval.rubric_scores ? (
-                        <details className="rounded-xl border border-dashed border-[color:var(--border)] px-3 py-2 text-xs text-muted">
-                          <summary className="cursor-pointer font-semibold text-strong">
-                            Details
-                          </summary>
-                          {approval.payload ? (
-                            <pre className="mt-2 whitespace-pre-wrap text-xs text-muted">
-                              Payload: {JSON.stringify(approval.payload, null, 2)}
-                            </pre>
-                          ) : null}
-                          {approval.rubric_scores ? (
-                            <pre className="mt-2 whitespace-pre-wrap text-xs text-muted">
-                              Rubric:{" "}
-                              {JSON.stringify(approval.rubric_scores, null, 2)}
-                            </pre>
-                          ) : null}
-                        </details>
-                      ) : null}
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => handleDecision(approval.id, "approved")}
-                          disabled={updatingId === approval.id}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDecision(approval.id, "rejected")}
-                          disabled={updatingId === approval.id}
-                          className={cn(
-                            "border-[color:var(--danger)] text-[color:var(--danger)] hover:text-[color:var(--danger)]"
-                          )}
-                        >
-                          Reject
-                        </Button>
+                        {summary.reason ? (
+                          <p className="text-sm text-muted">{summary.reason}</p>
+                        ) : null}
+                        {summary.rows.length > 0 ? (
+                          <dl className="grid gap-2 text-xs text-muted sm:grid-cols-2">
+                            {summary.rows.map((row) => (
+                              <div key={`${approval.id}-${row.label}`}>
+                                <dt className="font-semibold uppercase tracking-wide text-slate-500">
+                                  {row.label}
+                                </dt>
+                                <dd className="mt-1 text-sm text-strong">
+                                  {row.value}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+                          <button
+                            type="button"
+                            className="font-semibold text-slate-700 hover:text-slate-900"
+                            onClick={() => toggleExpanded(approval.id)}
+                          >
+                            {isExpanded ? "Hide raw" : "View raw"}
+                          </button>
+                          <span>JSON payload + rubric</span>
+                        </div>
+                        {isExpanded ? (
+                          <pre className="max-h-40 overflow-auto rounded-xl bg-slate-950 px-3 py-3 text-[11px] text-slate-100">
+                            {detailsPayload}
+                          </pre>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleDecision(approval.id, "approved")}
+                            disabled={updatingId === approval.id}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDecision(approval.id, "rejected")}
+                            disabled={updatingId === approval.id}
+                            className={cn(
+                              "border-[color:var(--danger)] text-[color:var(--danger)] hover:text-[color:var(--danger)]"
+                            )}
+                          >
+                            Reject
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
             {sortedApprovals.resolved.length > 0 ? (
@@ -337,69 +373,85 @@ export function BoardApprovalsPanel({
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Resolved
                 </p>
-                {sortedApprovals.resolved.map((approval) => {
-                  const summary = approvalSummary(approval);
-                  return (
-                    <div
-                      key={approval.id}
-                      className="space-y-3 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-strong">
-                            {humanizeAction(approval.action_type)}
-                          </p>
-                          <p className="text-xs text-muted">
-                            Requested {formatTimestamp(approval.created_at)}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={confidenceVariant(approval.confidence)}>
-                            {approval.confidence}% confidence
-                          </Badge>
-                          <Badge variant={statusBadgeVariant(approval.status)}>
-                            {approval.status}
-                          </Badge>
-                        </div>
-                      </div>
-                      {summary.rows.length > 0 ? (
-                        <div className="grid gap-2 text-sm text-strong sm:grid-cols-2">
-                          {summary.rows.map((row) => (
-                            <div key={`${approval.id}-${row.label}`}>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                                {row.label}
-                              </p>
-                              <p className="mt-1 text-sm text-strong">
-                                {row.value}
-                              </p>
+                <div className="divide-y divide-[color:var(--border)] rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]">
+                  {sortedApprovals.resolved.map((approval) => {
+                    const summary = approvalSummary(approval);
+                    const summaryLine = summary.rows
+                      .map((row) => `${row.label}: ${row.value}`)
+                      .join(" • ");
+                    const detailsPayload = JSON.stringify(
+                      {
+                        payload: approval.payload ?? null,
+                        rubric_scores: approval.rubric_scores ?? null,
+                      },
+                      null,
+                      2
+                    );
+                    const isExpanded = expandedIds.has(approval.id);
+                    return (
+                      <div key={approval.id} className="space-y-3 px-5 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-strong">
+                              {humanizeAction(approval.action_type)}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                              <span>
+                                Requested {formatTimestamp(approval.created_at)}
+                              </span>
+                              {summaryLine ? (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="truncate">{summaryLine}</span>
+                                </>
+                              ) : null}
                             </div>
-                          ))}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={confidenceVariant(approval.confidence)}>
+                              {approval.confidence}% confidence
+                            </Badge>
+                            <Badge variant={statusBadgeVariant(approval.status)}>
+                              {approval.status}
+                            </Badge>
+                          </div>
                         </div>
-                      ) : null}
-                      {summary.reason ? (
-                        <p className="text-sm text-muted">{summary.reason}</p>
-                      ) : null}
-                      {approval.payload || approval.rubric_scores ? (
-                        <details className="rounded-xl border border-dashed border-[color:var(--border)] px-3 py-2 text-xs text-muted">
-                          <summary className="cursor-pointer font-semibold text-strong">
-                            Details
-                          </summary>
-                          {approval.payload ? (
-                            <pre className="mt-2 whitespace-pre-wrap text-xs text-muted">
-                              Payload: {JSON.stringify(approval.payload, null, 2)}
-                            </pre>
-                          ) : null}
-                          {approval.rubric_scores ? (
-                            <pre className="mt-2 whitespace-pre-wrap text-xs text-muted">
-                              Rubric:{" "}
-                              {JSON.stringify(approval.rubric_scores, null, 2)}
-                            </pre>
-                          ) : null}
-                        </details>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                        {summary.reason ? (
+                          <p className="text-sm text-muted">{summary.reason}</p>
+                        ) : null}
+                        {summary.rows.length > 0 ? (
+                          <dl className="grid gap-2 text-xs text-muted sm:grid-cols-2">
+                            {summary.rows.map((row) => (
+                              <div key={`${approval.id}-${row.label}`}>
+                                <dt className="font-semibold uppercase tracking-wide text-slate-500">
+                                  {row.label}
+                                </dt>
+                                <dd className="mt-1 text-sm text-strong">
+                                  {row.value}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+                          <button
+                            type="button"
+                            className="font-semibold text-slate-700 hover:text-slate-900"
+                            onClick={() => toggleExpanded(approval.id)}
+                          >
+                            {isExpanded ? "Hide raw" : "View raw"}
+                          </button>
+                          <span>JSON payload + rubric</span>
+                        </div>
+                        {isExpanded ? (
+                          <pre className="max-h-40 overflow-auto rounded-xl bg-slate-950 px-3 py-3 text-[11px] text-slate-100">
+                            {detailsPayload}
+                          </pre>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
           </div>

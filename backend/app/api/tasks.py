@@ -140,6 +140,12 @@ def _lead_was_mentioned(
     return False
 
 
+def _lead_created_task(task: Task, lead: Agent) -> bool:
+    if not task.auto_created or not task.auto_reason:
+        return False
+    return task.auto_reason == f"lead_agent:{lead.id}"
+
+
 def _fetch_task_events(
     board_id: UUID,
     since: datetime,
@@ -692,11 +698,13 @@ def create_task_comment(
 ) -> ActivityEvent:
     if actor.actor_type == "agent" and actor.agent:
         if actor.agent.is_board_lead and task.status != "review":
-            if not _lead_was_mentioned(session, task, actor.agent):
+            if not _lead_was_mentioned(session, task, actor.agent) and not _lead_created_task(
+                task, actor.agent
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=(
-                        "Board leads can only comment during review or when mentioned."
+                        "Board leads can only comment during review, when mentioned, or on tasks they created."
                     ),
                 )
         if actor.agent.board_id and task.board_id and actor.agent.board_id != task.board_id:
@@ -714,15 +722,15 @@ def create_task_comment(
     session.refresh(event)
     mention_names = _extract_mentions(payload.message)
     targets: dict[UUID, Agent] = {}
-    if task.assigned_agent_id:
-        assigned_agent = session.get(Agent, task.assigned_agent_id)
-        if assigned_agent:
-            targets[assigned_agent.id] = assigned_agent
     if mention_names and task.board_id:
         statement = select(Agent).where(col(Agent.board_id) == task.board_id)
         for agent in session.exec(statement):
             if _matches_mention(agent, mention_names):
                 targets[agent.id] = agent
+    if not mention_names and task.assigned_agent_id:
+        assigned_agent = session.get(Agent, task.assigned_agent_id)
+        if assigned_agent:
+            targets[assigned_agent.id] = assigned_agent
     if actor.actor_type == "agent" and actor.agent:
         targets.pop(actor.agent.id, None)
     if targets:

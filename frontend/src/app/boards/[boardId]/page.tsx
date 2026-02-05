@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { SignInButton, SignedIn, SignedOut, useAuth } from "@clerk/nextjs";
-import { Pencil, Settings, X } from "lucide-react";
+import { MessageSquare, Pencil, Settings, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 import { BoardApprovalsPanel } from "@/components/BoardApprovalsPanel";
@@ -53,6 +53,8 @@ type Task = {
   assigned_agent_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  approvalsCount?: number;
+  approvalsPendingCount?: number;
 };
 
 type Agent = {
@@ -87,7 +89,24 @@ type Approval = {
   resolved_at?: string | null;
 };
 
+type BoardChatMessage = {
+  id: string;
+  content: string;
+  tags?: string[] | null;
+  source?: string | null;
+  created_at: string;
+};
+
 const apiBase = getApiBaseUrl();
+
+const approvalTaskId = (approval: Approval) => {
+  const payload = approval.payload ?? {};
+  return (
+    (payload as Record<string, unknown>).task_id ??
+    (payload as Record<string, unknown>).taskId ??
+    (payload as Record<string, unknown>).taskID
+  );
+};
 
 const priorities = [
   { value: "low", label: "Low" },
@@ -147,6 +166,12 @@ export default function BoardDetailPage() {
   const [approvalsUpdatingId, setApprovalsUpdatingId] = useState<string | null>(
     null,
   );
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<BoardChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatSending, setIsChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const chatMessagesRef = useRef<BoardChatMessage[]>([]);
   const [isDeletingTask, setIsDeletingTask] = useState(false);
   const [deleteTaskError, setDeleteTaskError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"board" | "list">("board");
@@ -274,6 +299,10 @@ export default function BoardDetailPage() {
     agentsRef.current = agents;
   }, [agents]);
 
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
+
   const loadApprovals = useCallback(async () => {
     if (!isSignedIn || !boardId) return;
     setIsApprovalsLoading(true);
@@ -305,6 +334,138 @@ export default function BoardDetailPage() {
   useEffect(() => {
     loadApprovals();
   }, [boardId, isSignedIn, loadApprovals]);
+
+  const loadBoardChat = useCallback(async () => {
+    if (!isSignedIn || !boardId) return;
+    setChatError(null);
+    try {
+      const token = await getToken();
+      const response = await fetch(
+        `${apiBase}/api/v1/boards/${boardId}/memory?limit=200`,
+        {
+          headers: {
+            Authorization: token ? `Bearer ${token}` : "",
+          },
+        },
+      );
+      if (!response.ok) {
+        throw new Error("Unable to load board chat.");
+      }
+      const data = (await response.json()) as BoardChatMessage[];
+      const chatOnly = data.filter((item) => item.tags?.includes("chat"));
+      const ordered = chatOnly.sort((a, b) => {
+        const aTime = new Date(a.created_at).getTime();
+        const bTime = new Date(b.created_at).getTime();
+        return aTime - bTime;
+      });
+      setChatMessages(ordered);
+    } catch (err) {
+      setChatError(
+        err instanceof Error ? err.message : "Unable to load board chat.",
+      );
+    }
+  }, [boardId, getToken, isSignedIn]);
+
+  useEffect(() => {
+    loadBoardChat();
+  }, [boardId, isSignedIn, loadBoardChat]);
+
+  const latestChatTimestamp = (items: BoardChatMessage[]) => {
+    if (!items.length) return undefined;
+    const latest = items.reduce((max, item) => {
+      const ts = new Date(item.created_at).getTime();
+      return Number.isNaN(ts) ? max : Math.max(max, ts);
+    }, 0);
+    if (!latest) return undefined;
+    return new Date(latest).toISOString();
+  };
+
+  useEffect(() => {
+    if (!isSignedIn || !boardId) return;
+    let isCancelled = false;
+    const abortController = new AbortController();
+
+    const connect = async () => {
+      try {
+        const token = await getToken();
+        if (!token || isCancelled) return;
+        const url = new URL(
+          `${apiBase}/api/v1/boards/${boardId}/memory/stream`,
+        );
+        const since = latestChatTimestamp(chatMessagesRef.current);
+        if (since) {
+          url.searchParams.set("since", since);
+        }
+        const response = await fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          signal: abortController.signal,
+        });
+        if (!response.ok || !response.body) {
+          throw new Error("Unable to connect board chat stream.");
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (!isCancelled) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          buffer = buffer.replace(/\r\n/g, "\n");
+          let boundary = buffer.indexOf("\n\n");
+          while (boundary !== -1) {
+            const raw = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const lines = raw.split("\n");
+            let eventType = "message";
+            let data = "";
+            for (const line of lines) {
+              if (line.startsWith("event:")) {
+                eventType = line.slice(6).trim();
+              } else if (line.startsWith("data:")) {
+                data += line.slice(5).trim();
+              }
+            }
+            if (eventType === "memory" && data) {
+              try {
+                const payload = JSON.parse(data) as { memory?: BoardChatMessage };
+                if (payload.memory?.tags?.includes("chat")) {
+                  setChatMessages((prev) => {
+                    const exists = prev.some(
+                      (item) => item.id === payload.memory?.id,
+                    );
+                    if (exists) return prev;
+                    const next = [...prev, payload.memory as BoardChatMessage];
+                    next.sort((a, b) => {
+                      const aTime = new Date(a.created_at).getTime();
+                      const bTime = new Date(b.created_at).getTime();
+                      return aTime - bTime;
+                    });
+                    return next;
+                  });
+                }
+              } catch {
+                // ignore malformed
+              }
+            }
+            boundary = buffer.indexOf("\n\n");
+          }
+        }
+      } catch {
+        if (!isCancelled) {
+          setTimeout(connect, 3000);
+        }
+      }
+    };
+
+    connect();
+    return () => {
+      isCancelled = true;
+      abortController.abort();
+    };
+  }, [boardId, getToken, isSignedIn]);
 
   useEffect(() => {
     if (!isSignedIn || !boardId) return;
@@ -642,6 +803,55 @@ export default function BoardDetailPage() {
     }
   };
 
+  const handleSendChat = async () => {
+    if (!isSignedIn || !boardId) return;
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+    setIsChatSending(true);
+    setChatError(null);
+    try {
+      const token = await getToken();
+      const response = await fetch(
+        `${apiBase}/api/v1/boards/${boardId}/memory`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: token ? `Bearer ${token}` : "",
+          },
+          body: JSON.stringify({
+            content: trimmed,
+            tags: ["chat"],
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error("Unable to send message.");
+      }
+      const created = (await response.json()) as BoardChatMessage;
+      if (created.tags?.includes("chat")) {
+        setChatMessages((prev) => {
+          const exists = prev.some((item) => item.id === created.id);
+          if (exists) return prev;
+          const next = [...prev, created];
+          next.sort((a, b) => {
+            const aTime = new Date(a.created_at).getTime();
+            const bTime = new Date(b.created_at).getTime();
+            return aTime - bTime;
+          });
+          return next;
+        });
+      }
+      setChatInput("");
+    } catch (err) {
+      setChatError(
+        err instanceof Error ? err.message : "Unable to send message.",
+      );
+    } finally {
+      setIsChatSending(false);
+    }
+  };
+
   const assigneeById = useMemo(() => {
     const map = new Map<string, string>();
     agents
@@ -652,6 +862,28 @@ export default function BoardDetailPage() {
     return map;
   }, [agents, boardId]);
 
+  const pendingApprovalsByTaskId = useMemo(() => {
+    const map = new Map<string, number>();
+    approvals
+      .filter((approval) => approval.status === "pending")
+      .forEach((approval) => {
+        const taskId = approvalTaskId(approval);
+        if (!taskId || typeof taskId !== "string") return;
+        map.set(taskId, (map.get(taskId) ?? 0) + 1);
+      });
+    return map;
+  }, [approvals]);
+
+  const totalApprovalsByTaskId = useMemo(() => {
+    const map = new Map<string, number>();
+    approvals.forEach((approval) => {
+      const taskId = approvalTaskId(approval);
+      if (!taskId || typeof taskId !== "string") return;
+      map.set(taskId, (map.get(taskId) ?? 0) + 1);
+    });
+    return map;
+  }, [approvals]);
+
   const displayTasks = useMemo(
     () =>
       tasks.map((task) => ({
@@ -659,8 +891,10 @@ export default function BoardDetailPage() {
         assignee: task.assigned_agent_id
           ? assigneeById.get(task.assigned_agent_id)
           : undefined,
+        approvalsCount: totalApprovalsByTaskId.get(task.id) ?? 0,
+        approvalsPendingCount: pendingApprovalsByTaskId.get(task.id) ?? 0,
       })),
-    [tasks, assigneeById],
+    [tasks, assigneeById, pendingApprovalsByTaskId, totalApprovalsByTaskId],
   );
 
   const boardAgents = useMemo(
@@ -712,11 +946,7 @@ export default function BoardDetailPage() {
     if (!selectedTask) return [];
     const taskId = selectedTask.id;
     return approvals.filter((approval) => {
-      const payload = approval.payload ?? {};
-      const payloadTaskId =
-        (payload as Record<string, unknown>).task_id ??
-        (payload as Record<string, unknown>).taskId ??
-        (payload as Record<string, unknown>).taskID;
+      const payloadTaskId = approvalTaskId(approval);
       return payloadTaskId === taskId;
     });
   }, [approvals, selectedTask]);
@@ -770,6 +1000,7 @@ export default function BoardDetailPage() {
   };
 
   const openComments = (task: Task) => {
+    setIsChatOpen(false);
     setSelectedTask(task);
     setIsDetailOpen(true);
     void loadComments(task.id);
@@ -783,6 +1014,18 @@ export default function BoardDetailPage() {
     setNewComment("");
     setPostCommentError(null);
     setIsEditDialogOpen(false);
+  };
+
+  const openBoardChat = () => {
+    if (isDetailOpen) {
+      closeComments();
+    }
+    setIsChatOpen(true);
+  };
+
+  const closeBoardChat = () => {
+    setIsChatOpen(false);
+    setChatError(null);
   };
 
   const handlePostComment = async () => {
@@ -1200,6 +1443,14 @@ export default function BoardDetailPage() {
                       </span>
                     ) : null}
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={openBoardChat}
+                    className="gap-2"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Board chat
+                  </Button>
                   <button
                     type="button"
                     onClick={() => router.push(`/boards/${boardId}/edit`)}
@@ -1349,6 +1600,12 @@ export default function BoardDetailPage() {
                                   </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                                  {task.approvalsPendingCount ? (
+                                    <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                      Approval needed · {task.approvalsPendingCount}
+                                    </span>
+                                  ) : null}
                                   <span
                                     className={cn(
                                       "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
@@ -1387,8 +1644,17 @@ export default function BoardDetailPage() {
           </div>
         </main>
       </SignedIn>
-      {isDetailOpen ? (
-        <div className="fixed inset-0 z-40 bg-slate-900/20" onClick={closeComments} />
+      {isDetailOpen || isChatOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/20"
+          onClick={() => {
+            if (isChatOpen) {
+              closeBoardChat();
+            } else {
+              closeComments();
+            }
+          }}
+        />
       ) : null}
       <aside
         className={cn(
@@ -1622,7 +1888,10 @@ export default function BoardDetailPage() {
       </aside>
 
       <Dialog open={isApprovalsOpen} onOpenChange={setIsApprovalsOpen}>
-        <DialogContent aria-label="Approvals">
+        <DialogContent
+          aria-label="Approvals"
+          className="flex h-[85vh] max-w-3xl flex-col overflow-hidden"
+        >
           <DialogHeader>
             <DialogTitle>Approvals</DialogTitle>
             <DialogDescription>
@@ -1630,17 +1899,114 @@ export default function BoardDetailPage() {
             </DialogDescription>
           </DialogHeader>
           {boardId ? (
-            <BoardApprovalsPanel
-              boardId={boardId}
-              approvals={approvals}
-              isLoading={isApprovalsLoading}
-              error={approvalsError}
-              onDecision={handleApprovalDecision}
-              onRefresh={loadApprovals}
-            />
+            <div className="flex-1 overflow-hidden">
+              <BoardApprovalsPanel
+                boardId={boardId}
+                approvals={approvals}
+                isLoading={isApprovalsLoading}
+                error={approvalsError}
+                onDecision={handleApprovalDecision}
+                onRefresh={loadApprovals}
+                scrollable
+              />
+            </div>
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <aside
+        className={cn(
+          "fixed right-0 top-0 z-50 h-full w-[560px] max-w-[96vw] transform border-l border-slate-200 bg-white shadow-2xl transition-transform",
+          isChatOpen ? "translate-x-0" : "translate-x-full",
+        )}
+      >
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Board chat
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-900">
+                Talk to the lead agent. Tag others with @name.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={closeBoardChat}
+              className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50"
+              aria-label="Close board chat"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex flex-1 flex-col overflow-hidden px-6 py-4">
+            <div className="flex-1 space-y-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4">
+              {chatError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {chatError}
+                </div>
+              ) : null}
+              {chatMessages.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No messages yet. Start the conversation with your lead agent.
+                </p>
+              ) : (
+                chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {message.source ?? "User"}
+                      </p>
+                      <span className="text-xs text-slate-400">
+                        {formatTaskTimestamp(message.created_at)}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-sm text-slate-900">
+                      <ReactMarkdown
+                        components={{
+                          p: ({ ...props }) => (
+                            <p className="mb-2 last:mb-0" {...props} />
+                          ),
+                          ul: ({ ...props }) => (
+                            <ul className="mb-2 list-disc pl-5" {...props} />
+                          ),
+                          ol: ({ ...props }) => (
+                            <ol className="mb-2 list-decimal pl-5" {...props} />
+                          ),
+                          strong: ({ ...props }) => (
+                            <strong className="font-semibold" {...props} />
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="mt-4 space-y-2">
+              <Textarea
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                placeholder="Message the board lead. Tag agents with @name."
+                className="min-h-[120px]"
+              />
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleSendChat}
+                  disabled={isChatSending || !chatInput.trim()}
+                >
+                  {isChatSending ? "Sending…" : "Send"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent aria-label="Edit task">
