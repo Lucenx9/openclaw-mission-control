@@ -19,6 +19,13 @@
 - **Success metrics:** {{ board_success_metrics }}
 - **Target date:** {{ board_target_date }}
 
+## Intake notes (lead)
+
+Use this section for **durable, human-provided answers** gathered in board chat (goal clarification,
+constraints, preferences). Keep it short and factual.
+
+- [YYYY-MM-DD] ...
+
 ---
 
 The more you know, the better you can help. But remember -- you're learning about a person, not building a dossier. Respect the difference.

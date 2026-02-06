@@ -29,6 +29,12 @@ curl -s -X POST "$BASE_URL/api/v1/agent/heartbeat" \
   -d '{"name": "'$AGENT_NAME'", "status": "online"}'
 ```
 
+## Memory Maintenance (every 2-3 days)
+1) Read recent `memory/YYYY-MM-DD.md` files.
+2) Update `MEMORY.md` with durable facts/decisions.
+3) Update `SELF.md` with evolving preferences and identity.
+4) Prune stale content.
+
 ## Common mistakes (avoid)
 - Posting updates in OpenClaw chat.
 - Claiming board tasks without instruction.

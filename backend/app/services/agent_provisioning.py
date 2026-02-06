@@ -320,9 +320,6 @@ def _render_agent_files(
     for name in sorted(file_names):
         if name == "BOOTSTRAP.md" and not include_bootstrap:
             continue
-        if name == "MEMORY.md":
-            rendered[name] = "# MEMORY\n\nBootstrap pending.\n"
-            continue
         if name == "HEARTBEAT.md":
             heartbeat_template = (
                 template_overrides[name]
@@ -343,6 +340,10 @@ def _render_agent_files(
         path = _templates_root() / template_name
         if path.exists():
             rendered[name] = env.get_template(template_name).render(**context).strip()
+            continue
+        if name == "MEMORY.md":
+            # Back-compat fallback for existing gateways that don't ship a MEMORY.md template.
+            rendered[name] = "# MEMORY\n\nBootstrap pending.\n"
             continue
         rendered[name] = ""
     return rendered
@@ -503,11 +504,18 @@ async def provision_agent(
     for name, content in rendered.items():
         if content == "":
             continue
-        await openclaw_call(
-            "agents.files.set",
-            {"agentId": agent_id, "name": name, "content": content},
-            config=client_config,
-        )
+        try:
+            await openclaw_call(
+                "agents.files.set",
+                {"agentId": agent_id, "name": name, "content": content},
+                config=client_config,
+            )
+        except OpenClawGatewayError as exc:
+            # Gateways may restrict file names. Skip unsupported files rather than
+            # failing provisioning for the entire agent.
+            if "unsupported file" in str(exc).lower():
+                continue
+            raise
     if reset_session:
         await _reset_session(session_key, client_config)
 
@@ -556,11 +564,16 @@ async def provision_main_agent(
     for name, content in rendered.items():
         if content == "":
             continue
-        await openclaw_call(
-            "agents.files.set",
-            {"agentId": agent_id, "name": name, "content": content},
-            config=client_config,
-        )
+        try:
+            await openclaw_call(
+                "agents.files.set",
+                {"agentId": agent_id, "name": name, "content": content},
+                config=client_config,
+            )
+        except OpenClawGatewayError as exc:
+            if "unsupported file" in str(exc).lower():
+                continue
+            raise
     if reset_session:
         await _reset_session(gateway.main_session_key, client_config)
 

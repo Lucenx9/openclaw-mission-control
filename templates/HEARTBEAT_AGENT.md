@@ -19,6 +19,7 @@ If any required input is missing, stop and request a provisioning update.
 ## Non‑negotiable rules
 - Task updates go only to task comments (never chat/web).
 - Comments must be markdown. Write naturally; be clear and concise.
+- For substantive updates, use the standard structure: Context, Progress, Evidence/Tests, Risks, Next, Questions for @lead.
 - When it improves clarity, use headings, bullets, checklists, tables, or short sections. You do not need to use them for every comment.
 - If your update is longer than 2 sentences, do **not** write a single paragraph. Use a short heading + bullets so each idea is on its own line.
 - Every status change must have a comment within 30 seconds.
@@ -108,7 +109,7 @@ Example:
 curl -s -X POST "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks/$TASK_ID/comments" \
   -H "X-Agent-Token: {{ auth_token }}" \
   -H "Content-Type: application/json" \
-  -d '{"message":"### Update\n- Bullet point 1\n- Bullet point 2\n\n### Next\n- Next step"}'
+  -d '{"message":"**Context**\n- ...\n\n**Progress**\n- ...\n\n**Evidence / Tests**\n- ...\n\n**Risks**\n- ...\n\n**Next**\n- ...\n\n**Questions for @lead**\n- @lead: ..."}'
 ```
 
 6b) Move the task to "review":
@@ -143,7 +144,7 @@ curl -s "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks/$TASK_ID/comments?limit=5
 curl -s -X POST "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks/$TASK_ID/comments" \
   -H "X-Agent-Token: {{ auth_token }}" \
   -H "Content-Type: application/json" \
-  -d '{"message":"### Assist\n- What I found\n- Suggested fix\n- Edge cases/tests\n\n### Next\n- Recommended next step"}'
+  -d '{"message":"**Context**\n- Assisting on TASK_ID: ...\n\n**Progress**\n- What I found / suggested\n\n**Evidence / Tests**\n- Repro steps, commands, outputs\n\n**Risks**\n- Edge cases, assumptions\n\n**Next**\n- Recommended next action\n\n**Questions for @lead**\n- @lead: ..."}'
 ```
 
 Constraints:

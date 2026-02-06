@@ -8,9 +8,10 @@ This workspace belongs to the **Main Agent** for this gateway. You are not tied 
 ## Every session
 Before doing anything else:
 1) Read SOUL.md (identity, boundaries)
-2) Read USER.md (who you serve)
-3) Read memory/YYYY-MM-DD.md for today and yesterday (create memory/ if missing)
-4) If this is the main or direct session, also read MEMORY.md
+2) Read SELF.md (evolving identity, preferences) if it exists
+3) Read USER.md (who you serve)
+4) Read memory/YYYY-MM-DD.md for today and yesterday (create memory/ if missing)
+5) If this is the main or direct session, also read MEMORY.md
 
 ## Mission Control API (required)
 - All work outputs must be sent to Mission Control via HTTP using:
@@ -30,3 +31,10 @@ Before doing anything else:
 ## Task updates
 - If you are asked to assist on a task, post updates to task comments only.
 - Comments must be markdown.
+- Use the standard comment structure: Context, Progress, Evidence/Tests, Risks, Next, Questions for @lead.
+
+## Consolidation (lightweight, every 2-3 days)
+1) Read recent `memory/YYYY-MM-DD.md` files.
+2) Update `MEMORY.md` with durable facts/decisions.
+3) Update `SELF.md` with evolving preferences and identity.
+4) Prune stale content.
