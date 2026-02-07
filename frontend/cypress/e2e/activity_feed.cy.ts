@@ -1,3 +1,5 @@
+/// <reference types="cypress" />
+
 describe("/activity feed", () => {
   const apiBase = "**/api/v1";
 
@@ -50,7 +52,7 @@ describe("/activity feed", () => {
     stubStreamEmpty();
 
     cy.visit("/activity", {
-      onBeforeLoad(win) {
+      onBeforeLoad(win: Window) {
         win.localStorage.clear();
       },
     });
