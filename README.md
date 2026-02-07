@@ -1,5 +1,8 @@
 # OpenClaw Mission Control
 
+[![CI](https://github.com/abhi1693/openclaw-mission-control/actions/workflows/ci.yml/badge.svg)](https://github.com/abhi1693/openclaw-mission-control/actions/workflows/ci.yml)
+
+
 Web UI + API for operating OpenClaw: managing boards, tasks, agents, approvals, and gateway connections.
 
 ## Active development
