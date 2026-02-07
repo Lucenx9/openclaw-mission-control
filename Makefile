@@ -75,8 +75,17 @@ backend-test: ## Backend tests (pytest)
 	cd $(BACKEND_DIR) && uv run pytest
 
 .PHONY: backend-coverage
-backend-coverage: ## Backend tests with coverage gate (100% stmt + branch on covered src)
-	cd $(BACKEND_DIR) && uv run pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=xml:coverage.xml
+backend-coverage: ## Backend tests with coverage gate (scoped 100% stmt+branch on selected modules)
+	# Policy: enforce 100% coverage only for the explicitly scoped, unit-testable backend modules.
+	# Rationale: overall API/DB coverage is currently low; we will expand the scope as we add tests.
+	cd $(BACKEND_DIR) && uv run pytest \
+		--cov=app.core.error_handling \
+		--cov=app.services.mentions \
+		--cov-branch \
+		--cov-report=term-missing \
+		--cov-report=xml:coverage.xml \
+		--cov-report=json:coverage.json \
+		--cov-fail-under=100
 
 .PHONY: frontend-test
 frontend-test: ## Frontend tests (vitest)

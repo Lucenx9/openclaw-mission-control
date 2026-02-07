@@ -131,6 +131,11 @@ Open http://localhost:3000.
 
 ## Common commands
 
+### Coverage policy
+
+CI enforces a **scoped 100% coverage gate** (statements + branches) for a small set of unit-testable modules.
+See `docs/coverage-policy.md`.
+
 From repo root:
 
 ```bash
