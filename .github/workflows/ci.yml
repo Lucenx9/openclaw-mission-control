@@ -110,9 +110,9 @@ jobs:
           CLERK_JWKS_URL: ${{ vars.CLERK_JWKS_URL }}
         run: |
           cd frontend
-          npm run dev -- --hostname 127.0.0.1 --port 3000 &
+          npm run dev -- --hostname 0.0.0.0 --port 3000 &
           for i in {1..60}; do
-            if curl -sf http://127.0.0.1:3000/ > /dev/null; then exit 0; fi
+            if curl -sf http://localhost:3000/ > /dev/null; then exit 0; fi
             sleep 2
           done
           echo "Frontend did not start"
@@ -121,10 +121,6 @@ jobs:
       - name: Run Cypress E2E
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-          # Prefer IPv4 to avoid localhost -> ::1 issues when Next binds only to 127.0.0.1.
-          NODE_OPTIONS: "--dns-result-order=ipv4first"
-          # Force Cypress to use 127.0.0.1 as baseUrl (Cypress only auto-loads CYPRESS_* into Cypress.env()).
-          CYPRESS_baseUrl: "http://127.0.0.1:3000"
           # Vars for shared Clerk OTP helper (frontend/cypress/support/commands.ts)
           CYPRESS_CLERK_ORIGIN: ${{ vars.CYPRESS_CLERK_ORIGIN }}
           CYPRESS_CLERK_TEST_EMAIL: ${{ vars.CYPRESS_CLERK_TEST_EMAIL }}
