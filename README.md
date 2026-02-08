@@ -35,6 +35,7 @@ OpenClaw Mission Control is under active development. Expect breaking changes an
 cp .env.example .env
 
 # REQUIRED: ensure the browser can reach the backend API.
+# NEXT_PUBLIC_API_URL must be reachable from the *browser* (host), not an internal Docker network name.
 # If you change ports/hosts, update NEXT_PUBLIC_API_URL in .env accordingly.
 # (Missing/blank NEXT_PUBLIC_API_URL will break frontend API calls like Activity feed.)
 

@@ -14,4 +14,4 @@
 - Docker Compose (self-host): set `NEXT_PUBLIC_API_URL=http://localhost:8000` in the root `.env` used by compose (or update it to match your actual backend host/port).
 
 Notes:
-- `NEXT_PUBLIC_API_URL` must be reachable from the browser (not just from within containers).
+- `NEXT_PUBLIC_API_URL` must be reachable from the browser. If you're using Docker Compose, don't set it to an internal service name like `http://backend:8000` unless the browser can resolve it.
