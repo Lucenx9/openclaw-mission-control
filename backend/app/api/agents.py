@@ -956,29 +956,36 @@ async def list_agents(
     board_ids = await list_accessible_board_ids(session, member=ctx.member, write=False)
     if board_id is not None and board_id not in set(board_ids):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
-    if not board_ids:
-        statement = select(Agent).where(col(Agent.id).is_(None))
+    base_filters: list[ColumnElement[bool]] = []
+    if board_ids:
+        base_filters.append(col(Agent.board_id).in_(board_ids))
+    if is_org_admin(ctx.member):
+        gateways = await Gateway.objects.filter_by(
+            organization_id=ctx.organization.id,
+        ).all(session)
+        gateway_keys = [gateway_agent_session_key(gateway) for gateway in gateways]
+        if gateway_keys:
+            base_filters.append(col(Agent.openclaw_session_id).in_(gateway_keys))
+    if base_filters:
+        if len(base_filters) == 1:
+            statement = select(Agent).where(base_filters[0])
+        else:
+            statement = select(Agent).where(or_(*base_filters))
     else:
-        base_filter: ColumnElement[bool] = col(Agent.board_id).in_(board_ids)
-        if is_org_admin(ctx.member):
-            gateways = await Gateway.objects.filter_by(
-                organization_id=ctx.organization.id,
-            ).all(session)
-            gateway_keys = [gateway_agent_session_key(gateway) for gateway in gateways]
-            if gateway_keys:
-                base_filter = or_(
-                    base_filter,
-                    col(Agent.openclaw_session_id).in_(gateway_keys),
-                )
-        statement = select(Agent).where(base_filter)
+        statement = select(Agent).where(col(Agent.id).is_(None))
     if board_id is not None:
         statement = statement.where(col(Agent.board_id) == board_id)
     if gateway_id is not None:
         gateway = await Gateway.objects.by_id(gateway_id).first(session)
         if gateway is None or gateway.organization_id != ctx.organization.id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        statement = statement.join(Board, col(Agent.board_id) == col(Board.id)).where(
-            col(Board.gateway_id) == gateway_id,
+        gateway_main_key = gateway_agent_session_key(gateway)
+        gateway_board_ids = select(Board.id).where(col(Board.gateway_id) == gateway_id)
+        statement = statement.where(
+            or_(
+                col(Agent.board_id).in_(gateway_board_ids),
+                col(Agent.openclaw_session_id) == gateway_main_key,
+            ),
         )
     statement = statement.order_by(col(Agent.created_at).desc())
 

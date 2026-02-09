@@ -16,7 +16,11 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 from app.core.config import settings
 from app.integrations.openclaw_gateway import GatewayConfig as GatewayClientConfig
 from app.integrations.openclaw_gateway import OpenClawGatewayError, ensure_session, openclaw_call
-from app.services.gateway_agents import gateway_agent_session_key
+from app.services.gateway_agents import (
+    gateway_agent_session_key,
+    gateway_openclaw_agent_id,
+    parse_gateway_agent_session_key,
+)
 
 if TYPE_CHECKING:
     from app.models.agents import Agent
@@ -145,6 +149,9 @@ def _slugify(value: str) -> str:
 def _agent_id_from_session_key(session_key: str | None) -> str | None:
     value = (session_key or "").strip()
     if not value:
+        return None
+    # Dedicated Mission Control gateway-agent session keys are not gateway config agent ids.
+    if parse_gateway_agent_session_key(value) is not None:
         return None
     if not value.startswith("agent:"):
         return None
@@ -880,22 +887,14 @@ async def provision_main_agent(
         label=agent.name or "Gateway Agent",
     )
 
-    agent_id = _agent_id_from_session_key(session_key)
-    if agent_id:
-        if not gateway.workspace_root:
-            msg = "gateway_workspace_root is required"
-            raise ValueError(msg)
-        workspace_path = _workspace_path(agent, gateway.workspace_root)
-        heartbeat = _heartbeat_config(agent)
-        await _patch_gateway_agent_list(agent_id, workspace_path, heartbeat, client_config)
-    else:
-        agent_id = await _gateway_default_agent_id(
-            client_config,
-            fallback_session_key=session_key,
-        )
-    if not agent_id:
-        msg = "Unable to resolve gateway main agent id"
-        raise OpenClawGatewayError(msg)
+    # Keep gateway default agent intact and use a dedicated OpenClaw agent id for Mission Control.
+    if not gateway.workspace_root:
+        msg = "gateway_workspace_root is required"
+        raise ValueError(msg)
+    agent_id = gateway_openclaw_agent_id(gateway)
+    workspace_path = _workspace_path(agent, gateway.workspace_root)
+    heartbeat = _heartbeat_config(agent)
+    await _patch_gateway_agent_list(agent_id, workspace_path, heartbeat, client_config)
 
     context = _build_main_context(agent, gateway, request.auth_token, request.user)
     supported = set(await _supported_gateway_files(client_config))

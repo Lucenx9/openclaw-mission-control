@@ -31,7 +31,11 @@ from app.services.agent_provisioning import (
     provision_agent,
     provision_main_agent,
 )
-from app.services.gateway_agents import gateway_agent_session_key
+from app.services.gateway_agents import (
+    gateway_agent_session_key,
+    gateway_openclaw_agent_id,
+    parse_gateway_agent_session_key,
+)
 
 _TOOLS_KV_RE = re.compile(r"^(?P<key>[A-Z0-9_]+)=(?P<value>.*)$")
 SESSION_KEY_PARTS_MIN = 2
@@ -179,6 +183,9 @@ def _agent_id_from_session_key(session_key: str | None) -> str | None:
     value = (session_key or "").strip()
     if not value:
         return None
+    # Dedicated Mission Control gateway-agent session keys are not gateway config agent ids.
+    if parse_gateway_agent_session_key(value) is not None:
+        return None
     if not value.startswith("agent:"):
         return None
     parts = value.split(":")
@@ -314,6 +321,7 @@ async def _gateway_default_agent_id(
             return agent_id
     except OpenClawGatewayError:
         pass
+    # Avoid falling back to dedicated gateway session keys, which are not agent ids.
     return _agent_id_from_session_key(fallback_session_key)
 
 
@@ -533,22 +541,7 @@ async def _sync_main_agent(
             message=("Gateway agent record not found; " "skipping gateway agent template sync."),
         )
         return True
-    try:
-        main_gateway_agent_id = await _gateway_default_agent_id(
-            ctx.config,
-            fallback_session_key=main_session_key,
-            backoff=ctx.backoff,
-        )
-    except TimeoutError as exc:
-        _append_sync_error(result, agent=main_agent, message=str(exc))
-        return True
-    if not main_gateway_agent_id:
-        _append_sync_error(
-            result,
-            agent=main_agent,
-            message="Unable to resolve gateway agent id.",
-        )
-        return True
+    main_gateway_agent_id = gateway_openclaw_agent_id(ctx.gateway)
 
     token, fatal = await _resolve_agent_auth_token(
         ctx,
