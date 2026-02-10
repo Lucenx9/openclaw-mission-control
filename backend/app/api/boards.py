@@ -39,8 +39,8 @@ from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.view_models import BoardGroupSnapshot, BoardSnapshot
 from app.services.board_group_snapshot import build_board_group_snapshot
 from app.services.board_snapshot import build_board_snapshot
+from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.openclaw.provisioning import OpenClawGatewayProvisioner
-from app.services.openclaw.shared import GatewayTransportError
 from app.services.organizations import OrganizationContext, board_access_filter
 
 if TYPE_CHECKING:
@@ -291,7 +291,7 @@ async def delete_board(
                     agent=agent,
                     gateway=config,
                 )
-        except GatewayTransportError as exc:
+        except OpenClawGatewayError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Gateway cleanup failed: {exc}",

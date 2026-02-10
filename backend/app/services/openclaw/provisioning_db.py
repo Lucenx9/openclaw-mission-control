@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -22,7 +21,7 @@ from sqlalchemy import asc, func, or_
 from sqlmodel import col, select
 from sse_starlette.sse import EventSourceResponse
 
-from app.core.agent_tokens import generate_agent_token, hash_agent_token, verify_agent_token
+from app.core.agent_tokens import verify_agent_token
 from app.core.time import utcnow
 from app.db import crud
 from app.db.pagination import paginate
@@ -50,6 +49,12 @@ from app.services.openclaw.constants import (
     DEFAULT_HEARTBEAT_CONFIG,
     OFFLINE_AFTER,
 )
+from app.services.openclaw.db_agent_state import (
+    mark_provision_complete,
+    mark_provision_requested,
+    mint_agent_token,
+)
+from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import (
     OpenClawGatewayError,
@@ -120,16 +125,12 @@ class LeadAgentRequest:
     options: LeadAgentOptions = field(default_factory=LeadAgentOptions)
 
 
-class OpenClawProvisioningService:
+class OpenClawProvisioningService(OpenClawDBService):
     """DB-backed provisioning workflows (bulk template sync, lead-agent record)."""
 
     def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+        super().__init__(session)
         self._gateway = OpenClawGatewayProvisioner()
-
-    @property
-    def session(self) -> AsyncSession:
-        return self._session
 
     @staticmethod
     def lead_session_key(board: Board) -> str:
@@ -191,21 +192,16 @@ class OpenClawProvisioningService:
 
         agent = Agent(
             name=config_options.agent_name or self.lead_agent_name(board),
-            status="provisioning",
             board_id=board.id,
             gateway_id=request.gateway.id,
             is_board_lead=True,
             heartbeat_config=DEFAULT_HEARTBEAT_CONFIG.copy(),
             identity_profile=merged_identity_profile,
             openclaw_session_id=self.lead_session_key(board),
-            provision_requested_at=utcnow(),
-            provision_action=config_options.action,
         )
-        raw_token = generate_agent_token()
-        agent.agent_token_hash = hash_agent_token(raw_token)
-        self.session.add(agent)
-        await self.session.commit()
-        await self.session.refresh(agent)
+        raw_token = mint_agent_token(agent)
+        mark_provision_requested(agent, action=config_options.action, status="provisioning")
+        await self.add_commit_refresh(agent)
 
         # Strict behavior: provisioning errors surface to the caller. The DB row exists
         # so a later retry can succeed with the same deterministic identity/session key.
@@ -220,13 +216,8 @@ class OpenClawProvisioningService:
             deliver_wakeup=True,
         )
 
-        agent.status = "online"
-        agent.provision_requested_at = None
-        agent.provision_action = None
-        agent.updated_at = utcnow()
-        self.session.add(agent)
-        await self.session.commit()
-        await self.session.refresh(agent)
+        mark_provision_complete(agent, status="online")
+        await self.add_commit_refresh(agent)
 
         return agent, True
 
@@ -433,8 +424,7 @@ def _append_sync_error(
 
 
 async def _rotate_agent_token(session: AsyncSession, agent: Agent) -> str:
-    token = generate_agent_token()
-    agent.agent_token_hash = hash_agent_token(token)
+    token = mint_agent_token(agent)
     agent.updated_at = utcnow()
     session.add(agent)
     await session.commit()
@@ -692,28 +682,11 @@ class AgentUpdateProvisionRequest:
     force_bootstrap: bool
 
 
-class AgentLifecycleService:
+class AgentLifecycleService(OpenClawDBService):
     """Async service encapsulating agent lifecycle behavior for API routes."""
 
     def __init__(self, session: AsyncSession) -> None:
-        self._session = session
-        self._logger = logging.getLogger(__name__)
-
-    @property
-    def session(self) -> AsyncSession:
-        return self._session
-
-    @session.setter
-    def session(self, value: AsyncSession) -> None:
-        self._session = value
-
-    @property
-    def logger(self) -> logging.Logger:
-        return self._logger
-
-    @logger.setter
-    def logger(self, value: logging.Logger) -> None:
-        self._logger = value
+        super().__init__(session)
 
     @staticmethod
     def parse_since(value: str | None) -> datetime | None:
@@ -1013,17 +986,10 @@ class AgentLifecycleService:
         data: dict[str, Any],
     ) -> tuple[Agent, str]:
         agent = Agent.model_validate(data)
-        agent.status = "provisioning"
-        raw_token = generate_agent_token()
-        agent.agent_token_hash = hash_agent_token(raw_token)
-        if agent.heartbeat_config is None:
-            agent.heartbeat_config = DEFAULT_HEARTBEAT_CONFIG.copy()
-        agent.provision_requested_at = utcnow()
-        agent.provision_action = "provision"
+        raw_token = mint_agent_token(agent)
+        mark_provision_requested(agent, action="provision", status="provisioning")
         agent.openclaw_session_id = self.resolve_session_key(agent)
-        self.session.add(agent)
-        await self.session.commit()
-        await self.session.refresh(agent)
+        await self.add_commit_refresh(agent)
         return agent, raw_token
 
     async def _apply_gateway_provisioning(
@@ -1078,11 +1044,7 @@ class AgentLifecycleService:
                 deliver_wakeup=True,
                 wakeup_verb=wakeup_verb,
             )
-            agent.provision_confirm_token_hash = None
-            agent.provision_requested_at = None
-            agent.provision_action = None
-            agent.status = "online"
-            agent.updated_at = utcnow()
+            mark_provision_complete(agent, status="online", clear_confirm_token=True)
             self.session.add(agent)
             await self.session.commit()
             record_activity(
@@ -1301,11 +1263,8 @@ class AgentLifecycleService:
 
     @staticmethod
     def mark_agent_update_pending(agent: Agent) -> str:
-        raw_token = generate_agent_token()
-        agent.agent_token_hash = hash_agent_token(raw_token)
-        agent.provision_requested_at = utcnow()
-        agent.provision_action = "update"
-        agent.status = "updating"
+        raw_token = mint_agent_token(agent)
+        mark_provision_requested(agent, action="update", status="updating")
         return raw_token
 
     async def provision_updated_agent(
@@ -1379,15 +1338,9 @@ class AgentLifecycleService:
         if agent.agent_token_hash is not None:
             return
 
-        raw_token = generate_agent_token()
-        agent.agent_token_hash = hash_agent_token(raw_token)
-        if agent.heartbeat_config is None:
-            agent.heartbeat_config = DEFAULT_HEARTBEAT_CONFIG.copy()
-        agent.provision_requested_at = utcnow()
-        agent.provision_action = "provision"
-        self.session.add(agent)
-        await self.session.commit()
-        await self.session.refresh(agent)
+        raw_token = mint_agent_token(agent)
+        mark_provision_requested(agent, action="provision", status="provisioning")
+        await self.add_commit_refresh(agent)
         board = await self.require_board(
             str(agent.board_id) if agent.board_id else None,
             user=user,

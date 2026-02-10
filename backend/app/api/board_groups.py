@@ -30,8 +30,8 @@ from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.view_models import BoardGroupSnapshot
 from app.services.board_group_snapshot import build_group_snapshot
 from app.services.openclaw.constants import DEFAULT_HEARTBEAT_CONFIG
+from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.openclaw.provisioning import OpenClawGatewayProvisioner
-from app.services.openclaw.shared import GatewayTransportError
 from app.services.organizations import (
     OrganizationContext,
     board_access_filter,
@@ -273,7 +273,7 @@ async def _sync_gateway_heartbeats(
                 gateway,
                 gateway_agents,
             )
-        except GatewayTransportError:
+        except OpenClawGatewayError:
             failed_agent_ids.extend([agent.id for agent in gateway_agents])
     return failed_agent_ids
 

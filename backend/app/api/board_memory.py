@@ -28,11 +28,8 @@ from app.models.board_memory import BoardMemory
 from app.schemas.board_memory import BoardMemoryCreate, BoardMemoryRead
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.services.mentions import extract_mentions, matches_agent_mention
-from app.services.openclaw.shared import (
-    GatewayClientConfig,
-    optional_gateway_config_for_board,
-    send_gateway_agent_message_safe,
-)
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
+from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -102,6 +99,7 @@ async def _send_control_command(
     session: AsyncSession,
     board: Board,
     actor: ActorContext,
+    dispatch: GatewayDispatchService,
     config: GatewayClientConfig,
     command: str,
 ) -> None:
@@ -115,7 +113,7 @@ async def _send_control_command(
             continue
         if not agent.openclaw_session_id:
             continue
-        error = await send_gateway_agent_message_safe(
+        error = await dispatch.try_send_agent_message(
             session_key=agent.openclaw_session_id,
             config=config,
             agent_name=agent.name,
@@ -161,7 +159,8 @@ async def _notify_chat_targets(
 ) -> None:
     if not memory.content:
         return
-    config = await optional_gateway_config_for_board(session, board)
+    dispatch = GatewayDispatchService(session)
+    config = await dispatch.optional_gateway_config_for_board(board)
     if config is None:
         return
 
@@ -174,6 +173,7 @@ async def _notify_chat_targets(
             session=session,
             board=board,
             actor=actor,
+            dispatch=dispatch,
             config=config,
             command=command,
         )
@@ -206,7 +206,7 @@ async def _notify_chat_targets(
             f"POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
             'Body: {"content":"...","tags":["chat"]}'
         )
-        error = await send_gateway_agent_message_safe(
+        error = await dispatch.try_send_agent_message(
             session_key=agent.openclaw_session_id,
             config=config,
             agent_name=agent.name,

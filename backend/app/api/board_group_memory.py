@@ -33,10 +33,7 @@ from app.models.users import User
 from app.schemas.board_group_memory import BoardGroupMemoryCreate, BoardGroupMemoryRead
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.services.mentions import extract_mentions, matches_agent_mention
-from app.services.openclaw.shared import (
-    optional_gateway_config_for_board,
-    send_gateway_agent_message_safe,
-)
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.organizations import (
     is_org_admin,
     list_accessible_board_ids,
@@ -206,6 +203,7 @@ def _group_header(*, is_broadcast: bool, mentioned: bool) -> str:
 @dataclass(frozen=True)
 class _NotifyGroupContext:
     session: AsyncSession
+    dispatch: GatewayDispatchService
     group: BoardGroup
     board_by_id: dict[UUID, Board]
     mentions: set[str]
@@ -226,7 +224,7 @@ async def _notify_group_target(
     board = context.board_by_id.get(board_id)
     if board is None:
         return
-    config = await optional_gateway_config_for_board(context.session, board)
+    config = await context.dispatch.optional_gateway_config_for_board(board)
     if config is None:
         return
     header = _group_header(
@@ -242,7 +240,7 @@ async def _notify_group_target(
         f"POST {context.base_url}/api/v1/boards/{board.id}/group-memory\n"
         'Body: {"content":"...","tags":["chat"]}'
     )
-    error = await send_gateway_agent_message_safe(
+    error = await context.dispatch.try_send_agent_message(
         session_key=session_key,
         config=config,
         agent_name=agent.name,
@@ -294,6 +292,7 @@ async def _notify_group_memory_targets(
 
     context = _NotifyGroupContext(
         session=session,
+        dispatch=GatewayDispatchService(session),
         group=group,
         board_by_id=board_by_id,
         mentions=mentions,

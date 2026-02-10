@@ -69,15 +69,17 @@ async def test_gateway_coordination_nudge_success(monkeypatch: pytest.MonkeyPatc
         return target
 
     async def _fake_require_gateway_config_for_board(
-        _session: object,
+        self: coordination_lifecycle.GatewayDispatchService,
         _board: object,
     ) -> tuple[object, GatewayClientConfig]:
+        _ = self
         gateway = SimpleNamespace(id=uuid4(), url="ws://gateway.example/ws")
         return gateway, GatewayClientConfig(url="ws://gateway.example/ws", token=None)
 
-    async def _fake_send_gateway_agent_message(**kwargs: Any) -> dict[str, bool]:
+    async def _fake_send_agent_message(self, **kwargs: Any) -> None:
+        _ = self
         captured.append(kwargs)
-        return {"ok": True}
+        return None
 
     monkeypatch.setattr(
         coordination_lifecycle.GatewayCoordinationService,
@@ -85,14 +87,14 @@ async def test_gateway_coordination_nudge_success(monkeypatch: pytest.MonkeyPatc
         _fake_board_agent_or_404,
     )
     monkeypatch.setattr(
-        coordination_lifecycle,
+        coordination_lifecycle.GatewayDispatchService,
         "require_gateway_config_for_board",
         _fake_require_gateway_config_for_board,
     )
     monkeypatch.setattr(
-        coordination_lifecycle,
-        "send_gateway_agent_message",
-        _fake_send_gateway_agent_message,
+        coordination_lifecycle.GatewayDispatchService,
+        "send_agent_message",
+        _fake_send_agent_message,
     )
 
     await service.nudge_board_agent(
@@ -135,13 +137,15 @@ async def test_gateway_coordination_nudge_maps_gateway_error(
         return target
 
     async def _fake_require_gateway_config_for_board(
-        _session: object,
+        self: coordination_lifecycle.GatewayDispatchService,
         _board: object,
     ) -> tuple[object, GatewayClientConfig]:
+        _ = self
         gateway = SimpleNamespace(id=uuid4(), url="ws://gateway.example/ws")
         return gateway, GatewayClientConfig(url="ws://gateway.example/ws", token=None)
 
-    async def _fake_send_gateway_agent_message(**_kwargs: Any) -> None:
+    async def _fake_send_agent_message(self, **_kwargs: Any) -> None:
+        _ = self
         raise OpenClawGatewayError("dial tcp: connection refused")
 
     monkeypatch.setattr(
@@ -150,14 +154,14 @@ async def test_gateway_coordination_nudge_maps_gateway_error(
         _fake_board_agent_or_404,
     )
     monkeypatch.setattr(
-        coordination_lifecycle,
+        coordination_lifecycle.GatewayDispatchService,
         "require_gateway_config_for_board",
         _fake_require_gateway_config_for_board,
     )
     monkeypatch.setattr(
-        coordination_lifecycle,
-        "send_gateway_agent_message",
-        _fake_send_gateway_agent_message,
+        coordination_lifecycle.GatewayDispatchService,
+        "send_agent_message",
+        _fake_send_agent_message,
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -185,25 +189,27 @@ async def test_board_onboarding_dispatch_start_returns_session_key(
     captured: list[dict[str, Any]] = []
 
     async def _fake_require_gateway_config_for_board(
-        _session: object,
+        self: onboarding_lifecycle.GatewayDispatchService,
         _board: object,
     ) -> tuple[object, GatewayClientConfig]:
+        _ = self
         gateway = SimpleNamespace(id=gateway_id, url="ws://gateway.example/ws")
         return gateway, GatewayClientConfig(url="ws://gateway.example/ws", token=None)
 
-    async def _fake_send_gateway_agent_message(**kwargs: Any) -> dict[str, bool]:
+    async def _fake_send_agent_message(self, **kwargs: Any) -> None:
+        _ = self
         captured.append(kwargs)
-        return {"ok": True}
+        return None
 
     monkeypatch.setattr(
-        onboarding_lifecycle,
+        onboarding_lifecycle.GatewayDispatchService,
         "require_gateway_config_for_board",
         _fake_require_gateway_config_for_board,
     )
     monkeypatch.setattr(
-        coordination_lifecycle,
-        "send_gateway_agent_message",
-        _fake_send_gateway_agent_message,
+        coordination_lifecycle.GatewayDispatchService,
+        "send_agent_message",
+        _fake_send_agent_message,
     )
 
     session_key = await service.dispatch_start_prompt(
@@ -224,28 +230,34 @@ async def test_board_onboarding_dispatch_answer_maps_timeout_error(
 ) -> None:
     session = _FakeSession()
     service = onboarding_lifecycle.BoardOnboardingMessagingService(session)  # type: ignore[arg-type]
-    board = _BoardStub(id=uuid4(), gateway_id=uuid4(), name="Roadmap")
-    onboarding = SimpleNamespace(id=uuid4(), session_key="agent:gateway-main:main")
+    gateway_id = uuid4()
+    board = _BoardStub(id=uuid4(), gateway_id=gateway_id, name="Roadmap")
+    onboarding = SimpleNamespace(
+        id=uuid4(),
+        session_key=GatewayAgentIdentity.session_key_for_id(gateway_id),
+    )
 
     async def _fake_require_gateway_config_for_board(
-        _session: object,
+        self: onboarding_lifecycle.GatewayDispatchService,
         _board: object,
     ) -> tuple[object, GatewayClientConfig]:
-        gateway = SimpleNamespace(id=uuid4(), url="ws://gateway.example/ws")
+        _ = self
+        gateway = SimpleNamespace(id=gateway_id, url="ws://gateway.example/ws")
         return gateway, GatewayClientConfig(url="ws://gateway.example/ws", token=None)
 
-    async def _fake_send_gateway_agent_message(**_kwargs: Any) -> None:
+    async def _fake_send_agent_message(self, **_kwargs: Any) -> None:
+        _ = self
         raise TimeoutError("gateway timeout")
 
     monkeypatch.setattr(
-        onboarding_lifecycle,
+        onboarding_lifecycle.GatewayDispatchService,
         "require_gateway_config_for_board",
         _fake_require_gateway_config_for_board,
     )
     monkeypatch.setattr(
-        coordination_lifecycle,
-        "send_gateway_agent_message",
-        _fake_send_gateway_agent_message,
+        coordination_lifecycle.GatewayDispatchService,
+        "send_agent_message",
+        _fake_send_agent_message,
     )
 
     with pytest.raises(HTTPException) as exc_info:

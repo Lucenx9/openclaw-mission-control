@@ -6,12 +6,9 @@ from app.models.board_onboarding import BoardOnboardingSession
 from app.models.boards import Board
 from app.services.openclaw.coordination_service import AbstractGatewayMessagingService
 from app.services.openclaw.exceptions import GatewayOperation, map_gateway_error_to_http_exception
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
-from app.services.openclaw.shared import (
-    GatewayAgentIdentity,
-    require_gateway_config_for_board,
-    resolve_trace_id,
-)
+from app.services.openclaw.shared import GatewayAgentIdentity
 
 
 class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
@@ -24,14 +21,18 @@ class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
         prompt: str,
         correlation_id: str | None = None,
     ) -> str:
-        trace_id = resolve_trace_id(correlation_id, prefix="onboarding.start")
+        trace_id = GatewayDispatchService.resolve_trace_id(
+            correlation_id, prefix="onboarding.start"
+        )
         self.logger.log(
             5,
             "gateway.onboarding.start_dispatch.start trace_id=%s board_id=%s",
             trace_id,
             board.id,
         )
-        gateway, config = await require_gateway_config_for_board(self.session, board)
+        gateway, config = await GatewayDispatchService(
+            self.session
+        ).require_gateway_config_for_board(board)
         session_key = GatewayAgentIdentity.session_key(gateway)
         try:
             await self._dispatch_gateway_message(
@@ -78,7 +79,9 @@ class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
         answer_text: str,
         correlation_id: str | None = None,
     ) -> None:
-        trace_id = resolve_trace_id(correlation_id, prefix="onboarding.answer")
+        trace_id = GatewayDispatchService.resolve_trace_id(
+            correlation_id, prefix="onboarding.answer"
+        )
         self.logger.log(
             5,
             "gateway.onboarding.answer_dispatch.start trace_id=%s board_id=%s onboarding_id=%s",
@@ -86,7 +89,9 @@ class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
             board.id,
             onboarding.id,
         )
-        _gateway, config = await require_gateway_config_for_board(self.session, board)
+        _gateway, config = await GatewayDispatchService(
+            self.session
+        ).require_gateway_config_for_board(board)
         try:
             await self._dispatch_gateway_message(
                 session_key=onboarding.session_key,

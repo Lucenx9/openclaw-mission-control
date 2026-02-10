@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -22,6 +21,7 @@ from app.schemas.gateway_api import (
     GatewaySessionsResponse,
     GatewaysStatusResponse,
 )
+from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import (
     OpenClawGatewayError,
@@ -50,28 +50,11 @@ class GatewayTemplateSyncQuery:
     board_id: UUID | None
 
 
-class GatewaySessionService:
+class GatewaySessionService(OpenClawDBService):
     """Read/query gateway runtime session state for user-facing APIs."""
 
     def __init__(self, session: AsyncSession) -> None:
-        self._session = session
-        self._logger = logging.getLogger(__name__)
-
-    @property
-    def session(self) -> AsyncSession:
-        return self._session
-
-    @session.setter
-    def session(self, value: AsyncSession) -> None:
-        self._session = value
-
-    @property
-    def logger(self) -> logging.Logger:
-        return self._logger
-
-    @logger.setter
-    def logger(self, value: logging.Logger) -> None:
-        self._logger = value
+        super().__init__(session)
 
     @staticmethod
     def to_resolve_query(

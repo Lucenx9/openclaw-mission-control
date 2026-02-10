@@ -33,6 +33,7 @@ from app.schemas.board_onboarding import (
     BoardOnboardingUserProfile,
 )
 from app.schemas.boards import BoardRead
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.onboarding_service import BoardOnboardingMessagingService
 from app.services.openclaw.policies import OpenClawAuthorizationPolicy
 from app.services.openclaw.provisioning_db import (
@@ -40,7 +41,6 @@ from app.services.openclaw.provisioning_db import (
     LeadAgentRequest,
     OpenClawProvisioningService,
 )
-from app.services.openclaw.shared import require_gateway_config_for_board
 
 if TYPE_CHECKING:
     from sqlmodel.ext.asyncio.session import AsyncSession
@@ -396,7 +396,7 @@ async def confirm_onboarding(
     lead_agent = _parse_draft_lead_agent(onboarding.draft_goal)
     lead_options = _lead_agent_options(lead_agent)
 
-    gateway, config = await require_gateway_config_for_board(session, board)
+    gateway, config = await GatewayDispatchService(session).require_gateway_config_for_board(board)
     session.add(board)
     session.add(onboarding)
     await session.commit()

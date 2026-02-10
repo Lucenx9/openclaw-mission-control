@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -10,7 +9,6 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import col
 
-from app.core.agent_tokens import generate_agent_token, hash_agent_token
 from app.core.auth import AuthContext
 from app.core.time import utcnow
 from app.db import crud
@@ -21,6 +19,12 @@ from app.models.gateways import Gateway
 from app.models.tasks import Task
 from app.schemas.gateways import GatewayTemplatesSyncResult
 from app.services.openclaw.constants import DEFAULT_HEARTBEAT_CONFIG
+from app.services.openclaw.db_agent_state import (
+    mark_provision_complete,
+    mark_provision_requested,
+    mint_agent_token,
+)
+from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
 from app.services.openclaw.provisioning import OpenClawGatewayProvisioner
@@ -64,7 +68,7 @@ class DefaultGatewayMainAgentManager(AbstractGatewayMainAgentManager):
         }
 
 
-class GatewayAdminLifecycleService:
+class GatewayAdminLifecycleService(OpenClawDBService):
     """Write-side gateway lifecycle service (CRUD, main agent, template sync)."""
 
     def __init__(
@@ -73,25 +77,8 @@ class GatewayAdminLifecycleService:
         *,
         main_agent_manager: AbstractGatewayMainAgentManager | None = None,
     ) -> None:
-        self._session = session
-        self._logger = logging.getLogger(__name__)
+        super().__init__(session)
         self._main_agent_manager = main_agent_manager or DefaultGatewayMainAgentManager()
-
-    @property
-    def session(self) -> AsyncSession:
-        return self._session
-
-    @session.setter
-    def session(self, value: AsyncSession) -> None:
-        self._session = value
-
-    @property
-    def logger(self) -> logging.Logger:
-        return self._logger
-
-    @logger.setter
-    def logger(self, value: logging.Logger) -> None:
-        self._logger = value
 
     @property
     def main_agent_manager(self) -> AbstractGatewayMainAgentManager:
@@ -206,16 +193,13 @@ class GatewayAdminLifecycleService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Organization owner not found (required for gateway agent USER.md rendering).",
             )
-        raw_token = generate_agent_token()
-        agent.agent_token_hash = hash_agent_token(raw_token)
-        agent.provision_requested_at = utcnow()
-        agent.provision_action = action
-        agent.updated_at = utcnow()
-        if agent.heartbeat_config is None:
-            agent.heartbeat_config = DEFAULT_HEARTBEAT_CONFIG.copy()
-        self.session.add(agent)
-        await self.session.commit()
-        await self.session.refresh(agent)
+        raw_token = mint_agent_token(agent)
+        mark_provision_requested(
+            agent,
+            action=action,
+            status="updating" if action == "update" else "provisioning",
+        )
+        await self.add_commit_refresh(agent)
         if not gateway.url:
             return agent
 
@@ -253,13 +237,8 @@ class GatewayAdminLifecycleService:
                 detail=f"Unexpected error {action}ing gateway provisioning.",
             ) from exc
 
-        agent.status = "online"
-        agent.provision_requested_at = None
-        agent.provision_action = None
-        agent.updated_at = utcnow()
-        self.session.add(agent)
-        await self.session.commit()
-        await self.session.refresh(agent)
+        mark_provision_complete(agent, status="online")
+        await self.add_commit_refresh(agent)
 
         self.logger.info(
             "gateway.main_agent.provision_success gateway_id=%s agent_id=%s action=%s",

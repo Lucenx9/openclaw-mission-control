@@ -40,12 +40,9 @@ from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskRead, TaskUpdate
 from app.services.activity_log import record_activity
 from app.services.mentions import extract_mentions, matches_agent_mention
-from app.services.openclaw.shared import (
-    GatewayClientConfig,
-    GatewayTransportError,
-    optional_gateway_config_for_board,
-    send_gateway_agent_message_safe,
-)
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
+from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
+from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.organizations import require_board_access
 from app.services.task_dependencies import (
     blocked_by_dependency_ids,
@@ -305,11 +302,12 @@ def _serialize_comment(event: ActivityEvent) -> dict[str, object]:
 
 async def _send_lead_task_message(
     *,
+    dispatch: GatewayDispatchService,
     session_key: str,
     config: GatewayClientConfig,
     message: str,
-) -> GatewayTransportError | None:
-    return await send_gateway_agent_message_safe(
+) -> OpenClawGatewayError | None:
+    return await dispatch.try_send_agent_message(
         session_key=session_key,
         config=config,
         agent_name="Lead Agent",
@@ -320,12 +318,13 @@ async def _send_lead_task_message(
 
 async def _send_agent_task_message(
     *,
+    dispatch: GatewayDispatchService,
     session_key: str,
     config: GatewayClientConfig,
     agent_name: str,
     message: str,
-) -> GatewayTransportError | None:
-    return await send_gateway_agent_message_safe(
+) -> OpenClawGatewayError | None:
+    return await dispatch.try_send_agent_message(
         session_key=session_key,
         config=config,
         agent_name=agent_name,
@@ -343,7 +342,8 @@ async def _notify_agent_on_task_assign(
 ) -> None:
     if not agent.openclaw_session_id:
         return
-    config = await optional_gateway_config_for_board(session, board)
+    dispatch = GatewayDispatchService(session)
+    config = await dispatch.optional_gateway_config_for_board(board)
     if config is None:
         return
     description = _truncate_snippet(task.description or "")
@@ -361,6 +361,7 @@ async def _notify_agent_on_task_assign(
         + ("\n\nTake action: open the task and begin work. " "Post updates as task comments.")
     )
     error = await _send_agent_task_message(
+        dispatch=dispatch,
         session_key=agent.openclaw_session_id,
         config=config,
         agent_name=agent.name,
@@ -415,7 +416,8 @@ async def _notify_lead_on_task_create(
     )
     if lead is None or not lead.openclaw_session_id:
         return
-    config = await optional_gateway_config_for_board(session, board)
+    dispatch = GatewayDispatchService(session)
+    config = await dispatch.optional_gateway_config_for_board(board)
     if config is None:
         return
     description = _truncate_snippet(task.description or "")
@@ -433,6 +435,7 @@ async def _notify_lead_on_task_create(
         + "\n\nTake action: triage, assign, or plan next steps."
     )
     error = await _send_lead_task_message(
+        dispatch=dispatch,
         session_key=lead.openclaw_session_id,
         config=config,
         message=message,
@@ -470,7 +473,8 @@ async def _notify_lead_on_task_unassigned(
     )
     if lead is None or not lead.openclaw_session_id:
         return
-    config = await optional_gateway_config_for_board(session, board)
+    dispatch = GatewayDispatchService(session)
+    config = await dispatch.optional_gateway_config_for_board(board)
     if config is None:
         return
     description = _truncate_snippet(task.description or "")
@@ -488,6 +492,7 @@ async def _notify_lead_on_task_unassigned(
         + "\n\nTake action: assign a new owner or adjust the plan."
     )
     error = await _send_lead_task_message(
+        dispatch=dispatch,
         session_key=lead.openclaw_session_id,
         config=config,
         message=message,
@@ -1029,8 +1034,11 @@ async def _notify_task_comment_targets(
         if request.task.board_id
         else None
     )
-    config = await optional_gateway_config_for_board(session, board) if board else None
-    if not board or not config:
+    if board is None:
+        return
+    dispatch = GatewayDispatchService(session)
+    config = await dispatch.optional_gateway_config_for_board(board)
+    if not config:
         return
 
     snippet = _truncate_snippet(request.message)
@@ -1057,6 +1065,7 @@ async def _notify_task_comment_targets(
             "thread but do not change task status."
         )
         await _send_agent_task_message(
+            dispatch=dispatch,
             session_key=agent.openclaw_session_id,
             config=config,
             agent_name=agent.name,
