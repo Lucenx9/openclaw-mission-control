@@ -9,6 +9,7 @@ import {
   Activity,
   Bot,
   ChevronDown,
+  Cpu,
   LayoutDashboard,
   LogOut,
   Plus,
@@ -154,6 +155,7 @@ export function UserMenu({
               { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
               { href: "/activity", label: "Activity", icon: Activity },
               { href: "/agents", label: "Agents", icon: Bot },
+              { href: "/models/routing", label: "Models", icon: Cpu },
               { href: "/gateways", label: "Gateways", icon: Server },
               { href: "/settings", label: "Settings", icon: Settings },
             ] as const

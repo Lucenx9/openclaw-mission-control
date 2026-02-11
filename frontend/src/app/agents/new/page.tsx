@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/auth/clerk";
@@ -12,9 +12,13 @@ import {
   type listBoardsApiV1BoardsGetResponse,
   useListBoardsApiV1BoardsGet,
 } from "@/api/generated/boards/boards";
+import {
+  type listModelsApiV1ModelRegistryModelsGetResponse,
+  useListModelsApiV1ModelRegistryModelsGet,
+} from "@/api/generated/model-registry/model-registry";
 import { useCreateAgentApiV1AgentsPost } from "@/api/generated/agents/agents";
 import { useOrganizationMembership } from "@/lib/use-organization-membership";
-import type { BoardRead } from "@/api/generated/model";
+import type { BoardRead, LlmModelRead } from "@/api/generated/model";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +90,8 @@ export default function NewAgentPage() {
   const [boardId, setBoardId] = useState<string>("");
   const [heartbeatEvery, setHeartbeatEvery] = useState("10m");
   const [heartbeatTarget, setHeartbeatTarget] = useState("none");
+  const [primaryModelId, setPrimaryModelId] = useState("");
+  const [fallbackModelIds, setFallbackModelIds] = useState<string[]>([]);
   const [identityProfile, setIdentityProfile] = useState<IdentityProfile>({
     ...DEFAULT_IDENTITY_PROFILE,
   });
@@ -114,12 +120,48 @@ export default function NewAgentPage() {
       },
     },
   });
+  const modelsQuery = useListModelsApiV1ModelRegistryModelsGet<
+    listModelsApiV1ModelRegistryModelsGetResponse,
+    ApiError
+  >(undefined, {
+    query: {
+      enabled: Boolean(isSignedIn && isAdmin),
+      refetchOnMount: "always",
+    },
+  });
 
   const boards =
     boardsQuery.data?.status === 200 ? (boardsQuery.data.data.items ?? []) : [];
+  const models: LlmModelRead[] =
+    modelsQuery.data?.status === 200 ? modelsQuery.data.data : [];
   const displayBoardId = boardId || boards[0]?.id || "";
+  const selectedBoard = boards.find((board) => board.id === displayBoardId) ?? null;
+  const availableModels = models.filter(
+    (model) => model.gateway_id === selectedBoard?.gateway_id,
+  );
+  const modelOptions = availableModels.map((model) => ({
+    value: model.id,
+    label: `${model.display_name} (${model.model_id})`,
+  }));
+  const availableModelIds = useMemo(
+    () => new Set(availableModels.map((model) => model.id)),
+    [availableModels],
+  );
+  const effectivePrimaryModelId = availableModelIds.has(primaryModelId)
+    ? primaryModelId
+    : "";
+  const effectiveFallbackModelIds = fallbackModelIds.filter(
+    (modelId) =>
+      modelId !== effectivePrimaryModelId && availableModelIds.has(modelId),
+  );
   const isLoading = boardsQuery.isLoading || createAgentMutation.isPending;
-  const errorMessage = error ?? boardsQuery.error?.message ?? null;
+  const errorMessage =
+    error ?? boardsQuery.error?.message ?? modelsQuery.error?.message ?? null;
+
+  const normalizedFallbackModelIds = fallbackModelIds.filter(
+    (modelId) =>
+      modelId !== effectivePrimaryModelId && availableModelIds.has(modelId),
+  );
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -147,6 +189,11 @@ export default function NewAgentPage() {
         identity_profile: normalizeIdentityProfile(
           identityProfile,
         ) as unknown as Record<string, unknown> | null,
+        primary_model_id: effectivePrimaryModelId || null,
+        fallback_model_ids:
+          normalizedFallbackModelIds.length > 0
+            ? normalizedFallbackModelIds
+            : null,
         soul_template: soulTemplate.trim() || null,
       },
     });
@@ -286,6 +333,74 @@ export default function NewAgentPage() {
                 rows={10}
                 disabled={isLoading}
               />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            LLM routing
+          </p>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900">
+                Primary model
+              </label>
+              <SearchableSelect
+                ariaLabel="Select primary model"
+                value={effectivePrimaryModelId}
+                onValueChange={setPrimaryModelId}
+                options={modelOptions}
+                placeholder="Select model"
+                searchPlaceholder="Search models..."
+                emptyMessage="No matching models."
+                disabled={isLoading || availableModels.length === 0}
+              />
+              {availableModels.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  No models found for this board&apos;s gateway. Configure models
+                  in the Models page first.
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900">
+                Fallback models
+              </label>
+              {modelOptions.length === 0 ? (
+                <p className="text-xs text-slate-500">No fallback models yet.</p>
+              ) : (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {modelOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={effectiveFallbackModelIds.includes(option.value)}
+                        disabled={
+                          isLoading || option.value === effectivePrimaryModelId
+                        }
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            setFallbackModelIds((current) =>
+                              current.includes(option.value)
+                                ? current
+                                : [...current, option.value],
+                            );
+                            return;
+                          }
+                          setFallbackModelIds((current) =>
+                            current.filter((value) => value !== option.value),
+                          );
+                        }}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -10,6 +10,7 @@ from app.models.board_memory import BoardMemory
 from app.models.board_onboarding import BoardOnboardingSession
 from app.models.boards import Board
 from app.models.gateways import Gateway
+from app.models.llm import LlmModel, LlmProviderAuth
 from app.models.organization_board_access import OrganizationBoardAccess
 from app.models.organization_invite_board_access import OrganizationInviteBoardAccess
 from app.models.organization_invites import OrganizationInvite
@@ -31,6 +32,8 @@ __all__ = [
     "BoardGroup",
     "Board",
     "Gateway",
+    "LlmModel",
+    "LlmProviderAuth",
     "Organization",
     "OrganizationMember",
     "OrganizationBoardAccess",

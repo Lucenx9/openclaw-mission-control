@@ -6,9 +6,14 @@ import {
   Activity,
   BarChart3,
   Bot,
+  Cpu,
+  Database,
   CheckCircle2,
   Folder,
+  GitBranch,
+  RefreshCw,
   Building2,
+  KeyRound,
   LayoutGrid,
   Network,
 } from "lucide-react";
@@ -158,7 +163,70 @@ export function DashboardSidebar() {
             >
               <Bot className="h-4 w-4" />
               Agents
-            </Link>
+              </Link>
+          ) : null}
+          {isAdmin ? (
+            <div className="space-y-1">
+              <div
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider",
+                  pathname.startsWith("/models")
+                    ? "text-blue-800"
+                    : "text-slate-500",
+                )}
+              >
+                <Cpu className="h-4 w-4" />
+                Models
+              </div>
+              <Link
+                href="/models/provider-auth"
+                className={cn(
+                  "ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 transition",
+                  pathname.startsWith("/models/provider-auth")
+                    ? "bg-blue-100 text-blue-800 font-medium"
+                    : "hover:bg-slate-100",
+                )}
+              >
+                <KeyRound className="h-4 w-4" />
+                Provider auth
+              </Link>
+              <Link
+                href="/models/catalog"
+                className={cn(
+                  "ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 transition",
+                  pathname.startsWith("/models/catalog")
+                    ? "bg-blue-100 text-blue-800 font-medium"
+                    : "hover:bg-slate-100",
+                )}
+              >
+                <Database className="h-4 w-4" />
+                Model catalog
+              </Link>
+              <Link
+                href="/models/routing"
+                className={cn(
+                  "ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 transition",
+                  pathname.startsWith("/models/routing") || pathname === "/models"
+                    ? "bg-blue-100 text-blue-800 font-medium"
+                    : "hover:bg-slate-100",
+                )}
+              >
+                <GitBranch className="h-4 w-4" />
+                Agent routing
+              </Link>
+              <Link
+                href="/models/sync"
+                className={cn(
+                  "ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 transition",
+                  pathname.startsWith("/models/sync")
+                    ? "bg-blue-100 text-blue-800 font-medium"
+                    : "hover:bg-slate-100",
+                )}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Gateway sync
+              </Link>
+            </div>
           ) : null}
         </nav>
       </div>

@@ -13,6 +13,16 @@ from app.schemas.board_onboarding import (
 )
 from app.schemas.boards import BoardCreate, BoardRead, BoardUpdate
 from app.schemas.gateways import GatewayCreate, GatewayRead, GatewayUpdate
+from app.schemas.llm_models import (
+    GatewayModelPullResult,
+    GatewayModelSyncResult,
+    LlmModelCreate,
+    LlmModelRead,
+    LlmModelUpdate,
+    LlmProviderAuthCreate,
+    LlmProviderAuthRead,
+    LlmProviderAuthUpdate,
+)
 from app.schemas.metrics import DashboardMetrics
 from app.schemas.organizations import (
     OrganizationActiveUpdate,
@@ -57,6 +67,14 @@ __all__ = [
     "GatewayRead",
     "GatewayUpdate",
     "DashboardMetrics",
+    "GatewayModelPullResult",
+    "GatewayModelSyncResult",
+    "LlmModelCreate",
+    "LlmModelRead",
+    "LlmModelUpdate",
+    "LlmProviderAuthCreate",
+    "LlmProviderAuthRead",
+    "LlmProviderAuthUpdate",
     "OrganizationActiveUpdate",
     "OrganizationCreate",
     "OrganizationInviteAccept",

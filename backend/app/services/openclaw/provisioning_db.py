@@ -32,6 +32,7 @@ from app.models.agents import Agent
 from app.models.board_memory import BoardMemory
 from app.models.boards import Board
 from app.models.gateways import Gateway
+from app.models.llm import LlmModel
 from app.models.organizations import Organization
 from app.models.tasks import Task
 from app.schemas.agents import (
@@ -72,6 +73,7 @@ from app.services.openclaw.internal.session_keys import (
     board_agent_session_key,
     board_lead_session_key,
 )
+from app.services.openclaw.model_registry_service import GatewayModelRegistryService
 from app.services.openclaw.policies import OpenClawAuthorizationPolicy
 from app.services.openclaw.provisioning import (
     OpenClawGatewayControlPlane,
@@ -959,6 +961,71 @@ class AgentLifecycleService(OpenClawDBService):
                 detail="An agent with this name already exists in this gateway workspace.",
             )
 
+    @staticmethod
+    def _normalized_fallback_ids(value: object) -> list[UUID]:
+        if not isinstance(value, list):
+            return []
+        normalized: list[UUID] = []
+        seen: set[UUID] = set()
+        for raw in value:
+            candidate = str(raw).strip()
+            if not candidate:
+                continue
+            try:
+                model_id = UUID(candidate)
+            except ValueError:
+                continue
+            if model_id in seen:
+                continue
+            seen.add(model_id)
+            normalized.append(model_id)
+        return normalized
+
+    async def normalize_agent_model_assignments(
+        self,
+        *,
+        gateway_id: UUID,
+        primary_model_id: UUID | None,
+        fallback_model_ids: list[UUID],
+    ) -> tuple[UUID | None, list[str] | None]:
+        if primary_model_id is None and not fallback_model_ids:
+            return None, None
+
+        candidate_ids: list[UUID] = []
+        if primary_model_id is not None:
+            candidate_ids.append(primary_model_id)
+        candidate_ids.extend(fallback_model_ids)
+        unique_ids = list(dict.fromkeys(candidate_ids))
+        statement = (
+            select(LlmModel.id)
+            .where(col(LlmModel.gateway_id) == gateway_id)
+            .where(col(LlmModel.id).in_(unique_ids))
+        )
+        with self.session.no_autoflush:
+            valid_ids = set(await self.session.exec(statement))
+        missing = [value for value in unique_ids if value not in valid_ids]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Model assignment includes model ids not in the agent gateway catalog.",
+            )
+
+        filtered_fallback: list[str] = []
+        for fallback_id in fallback_model_ids:
+            if primary_model_id is not None and fallback_id == primary_model_id:
+                continue
+            value = str(fallback_id)
+            if value in filtered_fallback:
+                continue
+            filtered_fallback.append(value)
+        return primary_model_id, (filtered_fallback or None)
+
+    async def sync_gateway_agent_models(self, *, gateway: Gateway) -> None:
+        await GatewayModelRegistryService(self.session).sync_gateway_config(
+            gateway=gateway,
+            organization_id=gateway.organization_id,
+        )
+
     async def persist_new_agent(
         self,
         *,
@@ -1177,6 +1244,13 @@ class AgentLifecycleService(OpenClawDBService):
                     detail="Board gateway_id is required",
                 )
             updates["gateway_id"] = board.gateway_id
+        if "primary_model_id" in updates:
+            primary_value = updates["primary_model_id"]
+            if primary_value is not None and not isinstance(primary_value, UUID):
+                updates["primary_model_id"] = UUID(str(primary_value))
+        if "fallback_model_ids" in updates:
+            normalized_fallback = self._normalized_fallback_ids(updates["fallback_model_ids"])
+            updates["fallback_model_ids"] = [str(model_id) for model_id in normalized_fallback] or None
         for key, value in updates.items():
             setattr(agent, key, value)
 
@@ -1192,6 +1266,19 @@ class AgentLifecycleService(OpenClawDBService):
                     detail="Board gateway_id is required",
                 )
             agent.gateway_id = board.gateway_id
+
+        primary_model_id = agent.primary_model_id
+        if primary_model_id is not None and not isinstance(primary_model_id, UUID):
+            primary_model_id = UUID(str(primary_model_id))
+        fallback_model_ids = self._normalized_fallback_ids(agent.fallback_model_ids)
+        normalized_primary, normalized_fallback = await self.normalize_agent_model_assignments(
+            gateway_id=agent.gateway_id,
+            primary_model_id=primary_model_id if isinstance(primary_model_id, UUID) else None,
+            fallback_model_ids=fallback_model_ids,
+        )
+        agent.primary_model_id = normalized_primary
+        agent.fallback_model_ids = normalized_fallback
+
         agent.updated_at = utcnow()
         if agent.heartbeat_config is None:
             agent.heartbeat_config = DEFAULT_HEARTBEAT_CONFIG.copy()
@@ -1487,6 +1574,17 @@ class AgentLifecycleService(OpenClawDBService):
         gateway, _client_config = await self.require_gateway(board)
         data = payload.model_dump()
         data["gateway_id"] = gateway.id
+        primary_model_id = data.get("primary_model_id")
+        if primary_model_id is not None and not isinstance(primary_model_id, UUID):
+            primary_model_id = UUID(str(primary_model_id))
+        fallback_model_ids = self._normalized_fallback_ids(data.get("fallback_model_ids"))
+        normalized_primary, normalized_fallback = await self.normalize_agent_model_assignments(
+            gateway_id=gateway.id,
+            primary_model_id=primary_model_id if isinstance(primary_model_id, UUID) else None,
+            fallback_model_ids=fallback_model_ids,
+        )
+        data["primary_model_id"] = normalized_primary
+        data["fallback_model_ids"] = normalized_fallback
         requested_name = (data.get("name") or "").strip()
         await self.ensure_unique_agent_name(
             board=board,
@@ -1502,6 +1600,8 @@ class AgentLifecycleService(OpenClawDBService):
             user=actor.user if actor.actor_type == "user" else None,
             force_bootstrap=False,
         )
+        if agent.primary_model_id is not None or agent.fallback_model_ids:
+            await self.sync_gateway_agent_models(gateway=gateway)
         self.logger.info("agent.create.success agent_id=%s board_id=%s", agent.id, board.id)
         return self.to_agent_read(self.with_computed_status(agent))
 
@@ -1535,6 +1635,7 @@ class AgentLifecycleService(OpenClawDBService):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         await self.require_agent_access(agent=agent, ctx=options.context, write=True)
         updates = payload.model_dump(exclude_unset=True)
+        sync_model_assignments = "primary_model_id" in updates or "fallback_model_ids" in updates
         make_main = updates.pop("is_gateway_main", None)
         await self.validate_agent_update_inputs(
             ctx=options.context,
@@ -1568,6 +1669,8 @@ class AgentLifecycleService(OpenClawDBService):
             agent=agent,
             request=provision_request,
         )
+        if sync_model_assignments or agent.primary_model_id is not None or agent.fallback_model_ids:
+            await self.sync_gateway_agent_models(gateway=target.gateway)
         self.logger.info("agent.update.success agent_id=%s", agent.id)
         return self.to_agent_read(self.with_computed_status(agent))
 

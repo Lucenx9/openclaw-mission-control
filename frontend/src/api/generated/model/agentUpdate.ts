@@ -16,6 +16,8 @@ export interface AgentUpdate {
   name?: string | null;
   status?: string | null;
   heartbeat_config?: AgentUpdateHeartbeatConfig;
+  primary_model_id?: string | null;
+  fallback_model_ids?: string[] | null;
   identity_profile?: AgentUpdateIdentityProfile;
   identity_template?: string | null;
   soul_template?: string | null;

@@ -492,10 +492,32 @@ async def _gateway_config_agent_list(
         msg = "config.get returned invalid payload"
         raise OpenClawGatewayError(msg)
 
-    data = cfg.get("config") or cfg.get("parsed") or {}
-    if not isinstance(data, dict):
-        msg = "config.get returned invalid config"
-        raise OpenClawGatewayError(msg)
+    # Prefer parsed object over raw serialized config to support older gateways.
+    raw_parsed = cfg.get("parsed")
+    raw_config = cfg.get("config")
+    data: dict[str, Any]
+
+    def _parse_json_config(raw: str) -> dict[str, Any]:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            msg = "config.get returned invalid config"
+            raise OpenClawGatewayError(msg) from exc
+        if not isinstance(parsed, dict):
+            msg = "config.get returned invalid config"
+            raise OpenClawGatewayError(msg)
+        return parsed
+
+    if isinstance(raw_parsed, dict):
+        data = raw_parsed
+    elif isinstance(raw_config, dict):
+        data = raw_config
+    elif isinstance(raw_parsed, str) and raw_parsed.strip():
+        data = _parse_json_config(raw_parsed)
+    elif isinstance(raw_config, str) and raw_config.strip():
+        data = _parse_json_config(raw_config)
+    else:
+        data = {}
 
     agents_section = data.get("agents") or {}
     agents_list = agents_section.get("list") or []

@@ -17,6 +17,10 @@ import {
   type listBoardsApiV1BoardsGetResponse,
   useListBoardsApiV1BoardsGet,
 } from "@/api/generated/boards/boards";
+import {
+  type listModelsApiV1ModelRegistryModelsGetResponse,
+  useListModelsApiV1ModelRegistryModelsGet,
+} from "@/api/generated/model-registry/model-registry";
 import type { AgentRead, AgentUpdate, BoardRead } from "@/api/generated/model";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { Button } from "@/components/ui/button";
@@ -118,6 +122,12 @@ export default function EditAgentPage() {
   const [heartbeatTarget, setHeartbeatTarget] = useState<string | undefined>(
     undefined,
   );
+  const [primaryModelId, setPrimaryModelId] = useState<string | undefined>(
+    undefined,
+  );
+  const [fallbackModelIds, setFallbackModelIds] = useState<string[] | undefined>(
+    undefined,
+  );
   const [identityProfile, setIdentityProfile] = useState<
     IdentityProfile | undefined
   >(undefined);
@@ -128,6 +138,16 @@ export default function EditAgentPage() {
 
   const boardsQuery = useListBoardsApiV1BoardsGet<
     listBoardsApiV1BoardsGetResponse,
+    ApiError
+  >(undefined, {
+    query: {
+      enabled: Boolean(isSignedIn),
+      refetchOnMount: "always",
+      retry: false,
+    },
+  });
+  const modelsQuery = useListModelsApiV1ModelRegistryModelsGet<
+    listModelsApiV1ModelRegistryModelsGetResponse,
     ApiError
   >(undefined, {
     query: {
@@ -165,6 +185,10 @@ export default function EditAgentPage() {
     if (boardsQuery.data?.status !== 200) return [];
     return boardsQuery.data.data.items ?? [];
   }, [boardsQuery.data]);
+  const models = useMemo(() => {
+    if (modelsQuery.data?.status !== 200) return [];
+    return modelsQuery.data.data;
+  }, [modelsQuery.data]);
   const loadedAgent: AgentRead | null =
     agentQuery.data?.status === 200 ? agentQuery.data.data : null;
 
@@ -201,17 +225,30 @@ export default function EditAgentPage() {
   const loadedSoulTemplate = useMemo(() => {
     return loadedAgent?.soul_template?.trim() || DEFAULT_SOUL_TEMPLATE;
   }, [loadedAgent?.soul_template]);
+  const loadedFallbackModelIds = useMemo(
+    () => loadedAgent?.fallback_model_ids ?? [],
+    [loadedAgent?.fallback_model_ids],
+  );
 
   const isLoading =
-    boardsQuery.isLoading || agentQuery.isLoading || updateMutation.isPending;
+    boardsQuery.isLoading ||
+    modelsQuery.isLoading ||
+    agentQuery.isLoading ||
+    updateMutation.isPending;
   const errorMessage =
-    error ?? agentQuery.error?.message ?? boardsQuery.error?.message ?? null;
+    error ??
+    agentQuery.error?.message ??
+    boardsQuery.error?.message ??
+    modelsQuery.error?.message ??
+    null;
 
   const resolvedName = name ?? loadedAgent?.name ?? "";
   const resolvedIsGatewayMain =
     isGatewayMain ?? Boolean(loadedAgent?.is_gateway_main);
   const resolvedHeartbeatEvery = heartbeatEvery ?? loadedHeartbeat.every;
   const resolvedHeartbeatTarget = heartbeatTarget ?? loadedHeartbeat.target;
+  const resolvedPrimaryModelId = primaryModelId ?? loadedAgent?.primary_model_id ?? "";
+  const resolvedFallbackModelIds = fallbackModelIds ?? loadedFallbackModelIds;
   const resolvedIdentityProfile = identityProfile ?? loadedIdentityProfile;
   const resolvedSoulTemplate = soulTemplate ?? loadedSoulTemplate;
 
@@ -219,6 +256,40 @@ export default function EditAgentPage() {
     if (resolvedIsGatewayMain) return boardId ?? "";
     return boardId ?? loadedAgent?.board_id ?? boards[0]?.id ?? "";
   }, [boardId, boards, loadedAgent?.board_id, resolvedIsGatewayMain]);
+  const targetGatewayId = useMemo(() => {
+    if (!loadedAgent) return null;
+    if (resolvedBoardId) {
+      const selectedBoard = boards.find((board) => board.id === resolvedBoardId);
+      if (selectedBoard?.gateway_id) {
+        return selectedBoard.gateway_id;
+      }
+    }
+    return loadedAgent.gateway_id;
+  }, [boards, loadedAgent, resolvedBoardId]);
+  const availableModels = useMemo(
+    () => models.filter((model) => model.gateway_id === targetGatewayId),
+    [models, targetGatewayId],
+  );
+  const modelOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      availableModels.map((model) => ({
+        value: model.id,
+        label: `${model.display_name} (${model.model_id})`,
+      })),
+    [availableModels],
+  );
+  const availableModelIds = useMemo(
+    () => new Set(availableModels.map((model) => model.id)),
+    [availableModels],
+  );
+  const effectivePrimaryModelId = availableModelIds.has(resolvedPrimaryModelId)
+    ? resolvedPrimaryModelId
+    : "";
+  const effectiveFallbackModelIds = resolvedFallbackModelIds.filter(
+    (modelIdValue) =>
+      modelIdValue !== effectivePrimaryModelId &&
+      availableModelIds.has(modelIdValue),
+  );
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -250,6 +321,11 @@ export default function EditAgentPage() {
       typeof loadedAgent.heartbeat_config === "object"
         ? (loadedAgent.heartbeat_config as Record<string, unknown>)
         : {};
+    const normalizedFallbackModelIds = effectiveFallbackModelIds.filter(
+      (modelIdValue) =>
+        modelIdValue !== effectivePrimaryModelId &&
+        availableModelIds.has(modelIdValue),
+    );
 
     const payload: AgentUpdate = {
       name: trimmed,
@@ -266,6 +342,14 @@ export default function EditAgentPage() {
         loadedAgent.identity_profile,
         resolvedIdentityProfile,
       ) as unknown as Record<string, unknown> | null,
+      primary_model_id:
+        effectivePrimaryModelId && availableModelIds.has(effectivePrimaryModelId)
+          ? effectivePrimaryModelId
+          : null,
+      fallback_model_ids:
+        normalizedFallbackModelIds.length > 0
+          ? normalizedFallbackModelIds
+          : null,
       soul_template: resolvedSoulTemplate.trim() || null,
     };
     if (!resolvedIsGatewayMain) {
@@ -465,6 +549,78 @@ export default function EditAgentPage() {
                 rows={10}
                 disabled={isLoading}
               />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            LLM routing
+          </p>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900">
+                Primary model
+              </label>
+              <SearchableSelect
+                ariaLabel="Select primary model"
+                value={effectivePrimaryModelId}
+                onValueChange={setPrimaryModelId}
+                options={modelOptions}
+                placeholder="Select model"
+                searchPlaceholder="Search models..."
+                emptyMessage="No matching models."
+                disabled={isLoading || modelOptions.length === 0}
+              />
+              {modelOptions.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  No models found for this agent&apos;s gateway. Configure models
+                  in the Models page.
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900">
+                Fallback models
+              </label>
+              {modelOptions.length === 0 ? (
+                <p className="text-xs text-slate-500">No fallback models yet.</p>
+              ) : (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {modelOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={effectiveFallbackModelIds.includes(option.value)}
+                        disabled={
+                          isLoading || option.value === effectivePrimaryModelId
+                        }
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            setFallbackModelIds((current) => {
+                              const value = current ?? loadedFallbackModelIds;
+                              return value.includes(option.value)
+                                ? value
+                                : [...value, option.value];
+                            });
+                            return;
+                          }
+                          setFallbackModelIds((current) => {
+                            const value = current ?? loadedFallbackModelIds;
+                            return value.filter(
+                              (modelIdValue) => modelIdValue !== option.value,
+                            );
+                          });
+                        }}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

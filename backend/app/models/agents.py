@@ -44,5 +44,10 @@ class Agent(QueryModel, table=True):
     delete_confirm_token_hash: str | None = Field(default=None, index=True)
     last_seen_at: datetime | None = Field(default=None)
     is_board_lead: bool = Field(default=False, index=True)
+    primary_model_id: UUID | None = Field(default=None, foreign_key="llm_models.id", index=True)
+    fallback_model_ids: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSON),
+    )
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

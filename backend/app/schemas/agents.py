@@ -39,6 +39,27 @@ def _normalize_identity_profile(
     return normalized or None
 
 
+def _normalize_model_ids(
+    model_ids: object,
+) -> list[UUID] | None:
+    if model_ids is None:
+        return None
+    if not isinstance(model_ids, (list, tuple, set)):
+        raise ValueError("fallback_model_ids must be a list")
+    normalized: list[UUID] = []
+    seen: set[UUID] = set()
+    for raw in model_ids:
+        candidate = str(raw).strip()
+        if not candidate:
+            continue
+        model_id = UUID(candidate)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        normalized.append(model_id)
+    return normalized or None
+
+
 class AgentBase(SQLModel):
     """Common fields shared by agent create/read/update payloads."""
 
@@ -46,6 +67,8 @@ class AgentBase(SQLModel):
     name: NonEmptyStr
     status: str = "provisioning"
     heartbeat_config: dict[str, Any] | None = None
+    primary_model_id: UUID | None = None
+    fallback_model_ids: list[UUID] | None = None
     identity_profile: dict[str, Any] | None = None
     identity_template: str | None = None
     soul_template: str | None = None
@@ -69,6 +92,15 @@ class AgentBase(SQLModel):
     ) -> dict[str, str] | None:
         """Normalize identity-profile values into trimmed string mappings."""
         return _normalize_identity_profile(value)
+
+    @field_validator("fallback_model_ids", mode="before")
+    @classmethod
+    def normalize_fallback_model_ids(
+        cls,
+        value: object,
+    ) -> list[UUID] | None:
+        """Normalize fallback model ids into ordered UUID values."""
+        return _normalize_model_ids(value)
 
 
 class AgentCreate(AgentBase):
@@ -83,6 +115,8 @@ class AgentUpdate(SQLModel):
     name: NonEmptyStr | None = None
     status: str | None = None
     heartbeat_config: dict[str, Any] | None = None
+    primary_model_id: UUID | None = None
+    fallback_model_ids: list[UUID] | None = None
     identity_profile: dict[str, Any] | None = None
     identity_template: str | None = None
     soul_template: str | None = None
@@ -106,6 +140,15 @@ class AgentUpdate(SQLModel):
     ) -> dict[str, str] | None:
         """Normalize identity-profile values into trimmed string mappings."""
         return _normalize_identity_profile(value)
+
+    @field_validator("fallback_model_ids", mode="before")
+    @classmethod
+    def normalize_fallback_model_ids(
+        cls,
+        value: object,
+    ) -> list[UUID] | None:
+        """Normalize fallback model ids into ordered UUID values."""
+        return _normalize_model_ids(value)
 
 
 class AgentRead(AgentBase):

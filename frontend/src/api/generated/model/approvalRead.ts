@@ -14,6 +14,7 @@ import type { ApprovalReadStatus } from "./approvalReadStatus";
 export interface ApprovalRead {
   action_type: string;
   task_id?: string | null;
+  task_ids?: string[];
   payload?: ApprovalReadPayload;
   confidence: number;
   rubric_scores?: ApprovalReadRubricScores;

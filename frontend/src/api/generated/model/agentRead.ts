@@ -16,6 +16,8 @@ export interface AgentRead {
   name: string;
   status?: string;
   heartbeat_config?: AgentReadHeartbeatConfig;
+  primary_model_id?: string | null;
+  fallback_model_ids?: string[] | null;
   identity_profile?: AgentReadIdentityProfile;
   identity_template?: string | null;
   soul_template?: string | null;

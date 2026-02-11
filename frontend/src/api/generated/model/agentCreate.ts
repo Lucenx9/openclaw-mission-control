@@ -16,6 +16,8 @@ export interface AgentCreate {
   name: string;
   status?: string;
   heartbeat_config?: AgentCreateHeartbeatConfig;
+  primary_model_id?: string | null;
+  fallback_model_ids?: string[] | null;
   identity_profile?: AgentCreateIdentityProfile;
   identity_template?: string | null;
   soul_template?: string | null;
