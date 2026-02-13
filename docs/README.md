@@ -10,6 +10,7 @@ This folder is the starting point for Mission Control documentation.
 - [Deployment](./deployment/README.md)
 - [Production notes](./production/README.md)
 - [Troubleshooting](./troubleshooting/README.md)
+- [Release checklist](./release/README.md)
 - [Gateway WebSocket protocol](./openclaw_gateway_ws.md)
 
 ## Status

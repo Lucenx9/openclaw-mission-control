@@ -40,10 +40,21 @@ If you accidentally based your branch off another feature branch, fix it by cher
 
 ### Expectations
 
+- Open a PR as **Draft** early (especially for multi-step work) so progress is visible and local changes aren’t lost.
 - Keep PRs **small and focused** when possible.
 - Include a clear description of the change and why it’s needed.
 - Add/adjust tests when behavior changes.
 - Update docs when contributor-facing or operator-facing behavior changes.
+
+### Draft PR policy
+
+- Start as **Draft** when:
+  - the PR is incomplete,
+  - CI is expected to fail,
+  - or you need early feedback on direction.
+- Mark **Ready for review** when:
+  - `make check` is green locally (or you’ve explained why it can’t be), and
+  - the description includes repro/verification notes.
 
 ### Local checks
 

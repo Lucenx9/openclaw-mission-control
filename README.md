@@ -112,6 +112,15 @@ make setup
 make check
 ```
 
+## Contributing / PR workflow
+
+- Contribution guide: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- Preferred flow: open a **Draft PR early**, then iterate until `make check` is green.
+
+## Releasing
+
+- Maintainer checklist: [Release checklist](./docs/release/README.md)
+
 ## License
 
 This project is licensed under the MIT License. See [`LICENSE`](./LICENSE).
