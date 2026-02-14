@@ -24,6 +24,102 @@ from app.services.webhooks.queue import (
 
 logger = get_logger(__name__)
 
+_ROUTINE_GITHUB_EVENTS = frozenset({"check_run", "check_suite", "workflow_run"})
+_SUCCESS_GITHUB_CONCLUSIONS = frozenset({None, "success", "neutral", "skipped"})
+# Consider these actionable enough to page the lead / surface in task threads.
+_ACTIONABLE_GITHUB_CONCLUSIONS = frozenset(
+    {
+        "failure",
+        "cancelled",
+        "timed_out",
+        "action_required",
+        "stale",
+        "startup_failure",
+    },
+)
+
+
+def _as_dict(value: object) -> dict[str, object] | None:
+    if isinstance(value, dict):
+        # Keep only string keys; payloads can include non-str keys in edge cases.
+        normalized: dict[str, object] = {}
+        for k, v in value.items():
+            if isinstance(k, str):
+                normalized[k] = v
+        return normalized
+    return None
+
+
+def _str_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _extract_github_conclusion(payload: dict[str, object], *, key: str) -> str | None:
+    container = _as_dict(payload.get(key))
+    if not container:
+        return None
+    return _str_or_none(container.get("conclusion"))
+
+
+def _extract_github_status(payload: dict[str, object], *, key: str) -> str | None:
+    container = _as_dict(payload.get(key))
+    if not container:
+        return None
+    return _str_or_none(container.get("status"))
+
+
+def _should_suppress_routine_delivery(
+    *,
+    payload_event: str | None,
+    payload_value: object,
+) -> bool:
+    """Return True if this delivery is routine noise and should not notify leads.
+
+    This intentionally only targets high-volume GitHub CI telemetry events.
+    We still persist the webhook payload + board memory entry for audit/debug.
+    """
+
+    if not settings.webhook_dispatch_suppress_routine_events:
+        return False
+
+    if payload_event not in _ROUTINE_GITHUB_EVENTS:
+        return False
+
+    payload = _as_dict(payload_value)
+    if payload is None:
+        return False
+
+    action = _str_or_none(payload.get("action"))
+    # If GitHub hasn't marked it completed, it's almost always noise.
+    if action and action != "completed":
+        return True
+
+    if payload_event == "workflow_run":
+        status = _extract_github_status(payload, key="workflow_run")
+        if status and status != "completed":
+            return True
+        conclusion = _extract_github_conclusion(payload, key="workflow_run")
+    elif payload_event == "check_run":
+        status = _extract_github_status(payload, key="check_run")
+        if status and status != "completed":
+            return True
+        conclusion = _extract_github_conclusion(payload, key="check_run")
+    else:  # check_suite
+        status = _extract_github_status(payload, key="check_suite")
+        if status and status != "completed":
+            return True
+        conclusion = _extract_github_conclusion(payload, key="check_suite")
+
+    if conclusion in _SUCCESS_GITHUB_CONCLUSIONS:
+        return True
+
+    # Only page on explicitly non-success conclusions.
+    return conclusion not in _ACTIONABLE_GITHUB_CONCLUSIONS
+
 
 def _build_payload_preview(payload_value: object) -> str:
     if isinstance(payload_value, str):
@@ -165,6 +261,22 @@ async def _process_single_item(item: QueuedWebhookDelivery) -> None:
             return
 
         board, webhook, payload = loaded
+        if _should_suppress_routine_delivery(
+            payload_event=item.payload_event,
+            payload_value=payload.payload,
+        ):
+            logger.info(
+                "webhook.dispatch.suppressed_routine",
+                extra={
+                    "payload_id": str(item.payload_id),
+                    "webhook_id": str(item.webhook_id),
+                    "board_id": str(item.board_id),
+                    "event": item.payload_event,
+                    "attempt": item.attempts,
+                },
+            )
+            return
+
         await _notify_lead(session=session, board=board, webhook=webhook, payload=payload)
         await session.commit()
 

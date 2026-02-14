@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     webhook_dispatch_throttle_seconds: float = 2.0
     webhook_dispatch_schedule_interval_seconds: int = 900
     webhook_dispatch_max_retries: int = 3
+    # If true, suppress high-volume routine CI telemetry events (e.g. GitHub check_run success)
+    # from lead notifications. Payloads are still persisted and recorded in board memory.
+    webhook_dispatch_suppress_routine_events: bool = True
 
     # Logging
     log_level: str = "INFO"
