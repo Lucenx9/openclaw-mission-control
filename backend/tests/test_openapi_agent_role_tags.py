@@ -193,7 +193,7 @@ def test_openapi_agent_schemas_include_discoverability_hints() -> None:
         assert "x-llm-intent" in component
         assert component["x-llm-intent"] == intent
         assert component.get("x-when-to-use")
-        assert component.get("x-required-actor") or component_name_is_query(schema_name)
+        assert component.get("x-required-actor") or schema_name_is_query(schema_name)
 
 
 def schema_name_is_query(schema_name: str) -> bool:

@@ -137,7 +137,7 @@ class GatewayLeadBroadcastRequest(SQLModel):
     board_ids: list[UUID] | None = Field(
         default=None,
         description="Optional explicit list of board IDs; omit for lead-scoped defaults.",
-        examples=[[ "11111111-1111-1111-1111-111111111111" ]],
+        examples=[["11111111-1111-1111-1111-111111111111"]],
     )
     reply_tags: list[str] = Field(
         default_factory=_lead_reply_tags,
