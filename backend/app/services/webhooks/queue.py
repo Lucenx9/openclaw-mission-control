@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from typing import cast
+
 import redis
 
 from app.core.config import settings
@@ -76,7 +78,7 @@ def enqueue_webhook_delivery(payload: QueuedWebhookDelivery) -> bool:
 def dequeue_webhook_delivery() -> QueuedWebhookDelivery | None:
     """Pop one queued webhook delivery payload."""
     client = _redis_client()
-    raw = client.rpop(settings.webhook_queue_name)
+    raw = cast(str | bytes | None, client.rpop(settings.webhook_queue_name))
     if raw is None:
         return None
     if isinstance(raw, bytes):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from redis import Redis
-from rq_scheduler import Scheduler
+from rq_scheduler import Scheduler  # type: ignore[import-untyped]
 
 from app.core.config import settings
 from app.services.webhooks import dispatch
