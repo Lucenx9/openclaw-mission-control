@@ -42,6 +42,12 @@ configure_logging()
 logger = get_logger(__name__)
 OPENAPI_TAGS = [
     {
+        "name": "health",
+        "description": (
+            "Service liveness/readiness probes used by infrastructure and runtime checks."
+        ),
+    },
+    {
         "name": "agent",
         "description": (
             "Agent-scoped API surface. All endpoints require `X-Agent-Token` and are "
@@ -112,19 +118,19 @@ else:
 install_error_handling(app)
 
 
-@app.get("/health")
+@app.get("/health", tags=["health"])
 def health() -> dict[str, bool]:
     """Lightweight liveness probe endpoint."""
     return {"ok": True}
 
 
-@app.get("/healthz")
+@app.get("/healthz", tags=["health"])
 def healthz() -> dict[str, bool]:
     """Alias liveness probe endpoint for platform compatibility."""
     return {"ok": True}
 
 
-@app.get("/readyz")
+@app.get("/readyz", tags=["health"])
 def readyz() -> dict[str, bool]:
     """Readiness probe endpoint for service orchestration checks."""
     return {"ok": True}
