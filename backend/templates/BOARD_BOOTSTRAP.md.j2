@@ -44,14 +44,17 @@ curl -fsS "{{ base_url }}/healthz" >/dev/null
 {% else %}
 6) If any fields are blank, leave them blank. Do not invent values.
 
-7) If `BASE_URL`, `AUTH_TOKEN`, and `BOARD_ID` are set in `TOOLS.md`, check in
+7) Use the values below from this file/TOOLS.md to check in:
+- `BASE_URL={{ base_url }}`
+- `AUTH_TOKEN={{ auth_token }}`
+- `BOARD_ID={{ board_id }}`
 to Mission Control to mark the agent online:
 
 ```bash
-curl -s -X POST "$BASE_URL/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: $AUTH_TOKEN" \
+curl -s -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
+  -H "X-Agent-Token: {{ auth_token }}" \
   -H "Content-Type: application/json" \
-  -d '{"name": "'$AGENT_NAME'", "board_id": "'$BOARD_ID'", "status": "online"}'
+  -d '{"name":"{{ agent_name }}","board_id":"{{ board_id }}","status":"online"}'
 ```
 
 8) Write a short note to `MEMORY.md` that bootstrap completed and list any
