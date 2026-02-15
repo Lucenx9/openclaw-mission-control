@@ -54,7 +54,8 @@ def parse_pull_request_url(url: str) -> ParsedPullRequest | None:
         return None
     if number <= 0:
         return None
-    return ParsedPullRequest(owner=owner, repo=repo, number=number, url=url)
+    canonical_url = f"https://github.com/{owner}/{repo}/pull/{number}"
+    return ParsedPullRequest(owner=owner, repo=repo, number=number, url=canonical_url)
 
 
 class GitHubClientError(RuntimeError):
