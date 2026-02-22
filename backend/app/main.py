@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, FastAPI, status
+from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi_pagination import add_pagination
@@ -465,6 +465,17 @@ else:
     logger.info("app.cors.disabled")
 
 install_error_handling(app)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next: Any) -> Response:
+    """Inject standard security headers into every response."""
+    response: Response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
 
 
 @app.get(
