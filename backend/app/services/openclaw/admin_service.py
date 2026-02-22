@@ -28,7 +28,7 @@ from app.services.openclaw.db_agent_state import (
 )
 from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.error_messages import normalize_gateway_error_message
-from app.services.openclaw.gateway_compat import check_gateway_runtime_compatibility
+from app.services.openclaw.gateway_compat import check_gateway_version_compatibility
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
 from app.services.openclaw.provisioning import OpenClawGatewayProvisioner
@@ -200,7 +200,7 @@ class GatewayAdminLifecycleService(OpenClawDBService):
             disable_device_pairing=disable_device_pairing,
         )
         try:
-            result = await check_gateway_runtime_compatibility(config)
+            result = await check_gateway_version_compatibility(config)
         except OpenClawGatewayError as exc:
             detail = normalize_gateway_error_message(str(exc))
             raise HTTPException(
